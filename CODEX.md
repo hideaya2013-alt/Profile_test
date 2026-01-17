@@ -1,10 +1,10 @@
-# CODEX.md — Tri-Menu Frontend Contract (Immutable)
+# CODEX.md（不変の契約事項）
 
 この文書は **不変の契約事項**。
 以後の実装は、ここを破らず「追加」で進める。
 変更が必要になった場合は、必ず理由と影響範囲を明記し、version を上げる。
 
-version: 0.1
+version: 0.2
 
 ---
 
@@ -27,6 +27,11 @@ version: 0.1
 - 既存のキー名・型・意味を変更しない（rename禁止）
 - 追加は OK（後方互換）
 - 迷ったら “新キーを足す” を優先
+
+#### 契約：永続化フィールド追加時の互換性（必須）
+- 新フィールドを追加した場合、**既存DB（古いレコード）にはキーが存在しない**前提で扱う。
+- `loadProfile()` / `loadPreferences()` 等の **load系で必ず補完・正規化**してから UI に渡す。
+- UIは補完後の値を表示し、保存時に以後の永続化形式を確定する（undefined を残さない）。
 
 ### 1.3 アイコンポリシー
 - **外部CDN禁止**
@@ -84,6 +89,9 @@ version: 0.1
 
 ### 4.2 Preferences
 - trackSessionRpe: boolean
+  - 初期値: true
+  -指示プロンプトに前提条件が記載があればプロンプトに従う
+  - 既存DBにキーが無い場合: load時に true を補完して扱う
 
 ### 4.3 Activity（History用）
 - id: string
@@ -117,7 +125,9 @@ version: 0.1
 ### 5.1 Profile
 - Biometric入力 → Save/Resync → SYNCED/UNSYNC 変化
 - Training Focus ピル（SelectablePill skill）
-- Preferences トグル
+- Preferences トグル（trackSessionRpe）
+  - 初期値は ON（true）
+  - トグル変更で UNSYNC、Save で SYNCED に戻す
 
 ### 5.2 New Activity
 - GPX import / Manual entry
@@ -154,3 +164,42 @@ version: 0.1
 - “なぜ必要か” / “影響範囲” / “移行方針” を書く
 - version を上げる
 - 破壊的変更は原則しない（やるなら別ブランチ）
+
+## Architecture Rule: 依存しないブロック設計（1機能=1ブロック）
+
+このプロジェクトでは「画面/機能をブロック化」し、ブロック間の依存を極小化する。
+目的は、変更の波及を防ぎ、AI実装でも壊れにくい構造を維持すること。
+
+### 1) ブロックの定義
+- 1画面 = 1ブロック（例: Profile / New Activity / History / Tri AI Coach など）
+- 各ブロックは `src/screens/<screen>.ts` に配置し、`mount(root)` を export する。
+- ブロックは引数 `root` 配下だけを操作し、DOMや状態を外へ漏らさない。
+
+### 2) 依存禁止ルール（最重要）
+- screens/* は **他の screens/* を import してはいけない**（画面間依存は禁止）
+- ブロック内の補助関数は export しない（ファイル内 private）
+- 共通化したくなる関数が出ても、原則「重複OK」でブロック内に閉じる
+  - ※共通化は最終段階で必要になった場合のみ検討する
+
+### 3) 共有を許可する“境界”は最小限
+- screens/* が import してよいのは次のみ：
+  - `src/db.ts`（IndexedDB I/O のみ）
+  - `src/types.ts`（データ型のみ）
+  - `src/services/*`（コンテキストパック生成など。UIロジックは置かない）
+- DBアクセスは `db.ts` 経由に統一し、DB処理の重複は避ける（データ破損防止）
+
+### 4) main.ts の責務
+- `src/main.ts` はルーター/ナビゲーションのみ担当する
+- 画面固有のロジックやDOM生成は持たない（各 screens に委譲）
+- 画面追加は「screensにファイル追加 + registryに登録」で完結させる
+
+### 5) クリーンアップ（イベント残留防止）
+- 画面が addEventListener / timer を使う場合、画面切替時に解除できるようにする
+  - mount が cleanup 関数を返す、または unmount を用意して main.ts が呼ぶ
+
+### 6) 実装スタイルの優先順位
+- 「壊れない」>「DRY（共通化）」>「美しさ」
+- まず動く最小ブロックを作り、必要になった時だけ段階的に共通化する
+
+### 7) Profile_testプロジェクト内のみ有効
+- Tri AI Coach は将来 `menu` と `chat` に分割する可能性があるため、ブロックは増やしてよい（依存禁止ルールは維持）

@@ -1,12 +1,12 @@
-import { loadProfile, saveProfile, type ProfileData } from "./db";
+import { loadProfile, saveProfile, type ProfileData } from "../db";
 
-// ローカルSVG（Tabler）を “生文字列” として読む
-import cloudCheckSvg from "./assets/icons/status/cloud-check.svg?raw";
-import cloudXSvg from "./assets/icons/status/cloud-x.svg?raw";
-import continuitySvg from "./assets/icons/focus/continuity.svg?raw";
-import injurySvg from "./assets/icons/focus/injury.svg?raw";
-import fatigueSvg from "./assets/icons/focus/fatigue.svg?raw";
-import checkSvg from "./assets/icons/common/check.svg?raw";
+// 繝ｭ繝ｼ繧ｫ繝ｫSVG・・abler・峨ｒ 窶懃函譁・ｭ怜・窶・縺ｨ縺励※隱ｭ繧
+import cloudCheckSvg from "../assets/icons/status/cloud-check.svg?raw";
+import cloudXSvg from "../assets/icons/status/cloud-x.svg?raw";
+import continuitySvg from "../assets/icons/focus/continuity.svg?raw";
+import injurySvg from "../assets/icons/focus/injury.svg?raw";
+import fatigueSvg from "../assets/icons/focus/fatigue.svg?raw";
+import checkSvg from "../assets/icons/common/check.svg?raw";
 
 type State = {
   isSynced: boolean;
@@ -28,7 +28,11 @@ function normalizeTrainingFocus(value?: string[] | null) {
 }
 
 function cloneProfile(p: ProfileData): ProfileData {
-  return { ...p, trainingFocus: [...normalizeTrainingFocus(p.trainingFocus)] };
+  return {
+    ...p,
+    trainingFocus: [...normalizeTrainingFocus(p.trainingFocus)],
+    trackSessionRpe: p.trackSessionRpe ?? true,
+  };
 }
 
 const DEFAULT_PROFILE: ProfileData = {
@@ -38,6 +42,7 @@ const DEFAULT_PROFILE: ProfileData = {
   ftpW: 285,
   vo2max: 58,
   trainingFocus: [...DEFAULT_TRAINING_FOCUS],
+  trackSessionRpe: true,
 };
 
 const focusOptions = [
@@ -66,9 +71,20 @@ function parseNumber(input: HTMLInputElement, fallback: number) {
   return Number.isFinite(v) ? v : fallback;
 }
 
-export async function mountProfile(root: HTMLElement) {
-  // 初期ロード
+export function mountProfile(root: HTMLElement) {
+  const abort = new AbortController();
+  void mountProfileInner(root, abort.signal);
+  return () => {
+    abort.abort();
+  };
+}
+
+async function mountProfileInner(root: HTMLElement, signal: AbortSignal) {
+  // 蛻晄悄繝ｭ繝ｼ繝・
   const saved = await loadProfile();
+  if (signal.aborted) {
+    return;
+  }
   const initial = saved ?? DEFAULT_PROFILE;
 
   const state: State = {
@@ -78,7 +94,10 @@ export async function mountProfile(root: HTMLElement) {
     lastSaved: saved ? cloneProfile(saved) : null,
   };
 
-  // 描画
+  // 謠冗判
+  if (signal.aborted) {
+    return;
+  }
   root.innerHTML = `
   <div class="min-h-screen bg-slate-950 text-slate-100">
     <div class="mx-auto max-w-[520px] px-5 py-6">
@@ -123,6 +142,32 @@ export async function mountProfile(root: HTMLElement) {
           ></div>
         </div>
 
+        <div class="mt-6 border-t border-slate-800/80 pt-5">
+          <h2 class="text-lg font-semibold tracking-tight">Preferences</h2>
+          <label
+            class="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-slate-800/80 bg-slate-900/50 px-4 py-4"
+          >
+            <div>
+              <div class="text-sm font-medium text-slate-100">Track Session RPE</div>
+              <div class="text-xs text-slate-400">Prompt for exertion after workouts.</div>
+            </div>
+            <div class="relative">
+              <input
+                id="trackSessionRpe"
+                type="checkbox"
+                role="switch"
+                class="peer sr-only"
+              />
+              <div
+                class="h-6 w-11 rounded-full bg-slate-800 transition peer-checked:bg-sky-500/80 peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-slate-950"
+              ></div>
+              <div
+                class="pointer-events-none absolute left-1 top-1 h-4 w-4 rounded-full bg-slate-200 transition peer-checked:translate-x-5 peer-checked:bg-white"
+              ></div>
+            </div>
+          </label>
+        </div>
+
         <div class="mt-6">
           <button id="btnSave"
             class="w-full rounded-2xl bg-sky-500/90 py-4 font-semibold text-slate-950 hover:bg-sky-400">
@@ -130,7 +175,7 @@ export async function mountProfile(root: HTMLElement) {
           </button>
 
           <p id="hint" class="mt-3 text-xs text-slate-400">
-            入力を触るとUNSYNCになります。SaveでSYNCEDに戻ります。ResyncはDBの値で上書きします。
+            蜈･蜉帙ｒ隗ｦ繧九→UNSYNC縺ｫ縺ｪ繧翫∪縺吶４ave縺ｧSYNCED縺ｫ謌ｻ繧翫∪縺吶３esync縺ｯDB縺ｮ蛟､縺ｧ荳頑嶌縺阪＠縺ｾ縺吶・
           </p>
         </div>
       </section>
@@ -138,7 +183,7 @@ export async function mountProfile(root: HTMLElement) {
   </div>
   `;
 
-  // 参照
+  // 蜿ら・
   const ageEl = root.querySelector<HTMLInputElement>("#age")!;
   const heightEl = root.querySelector<HTMLInputElement>("#heightCm")!;
   const weightEl = root.querySelector<HTMLInputElement>("#weightKg")!;
@@ -151,6 +196,8 @@ export async function mountProfile(root: HTMLElement) {
   const statusText = root.querySelector<HTMLSpanElement>("#statusText")!;
   const statusPill = root.querySelector<HTMLDivElement>("#statusPill")!;
   const focusGroup = root.querySelector<HTMLDivElement>("#focusGroup")!;
+  const trackSessionRpeEl = root.querySelector<HTMLInputElement>("#trackSessionRpe")!;
+  const eventOptions = { signal };
 
   function setFormFromProfile(p: ProfileData) {
     ageEl.value = String(p.age);
@@ -158,17 +205,19 @@ export async function mountProfile(root: HTMLElement) {
     weightEl.value = String(p.weightKg);
     ftpEl.value = String(p.ftpW);
     vo2El.value = String(p.vo2max);
+    trackSessionRpeEl.checked = p.trackSessionRpe ?? true;
   }
 
   function readProfileFromForm(): ProfileData {
-    // ざっくり安全域（テスト用）
+    // 縺悶▲縺上ｊ螳牙・蝓滂ｼ医ユ繧ｹ繝育畑・・
     const age = clampNum(parseNumber(ageEl, state.current.age), 10, 99);
     const heightCm = clampNum(parseNumber(heightEl, state.current.heightCm), 100, 230);
     const weightKg = clampNum(parseNumber(weightEl, state.current.weightKg), 30, 150);
     const ftpW = clampNum(parseNumber(ftpEl, state.current.ftpW), 50, 600);
     const vo2max = clampNum(parseNumber(vo2El, state.current.vo2max), 10, 90);
     const trainingFocus = normalizeTrainingFocus(state.current.trainingFocus);
-    return { age, heightCm, weightKg, ftpW, vo2max, trainingFocus };
+    const trackSessionRpe = trackSessionRpeEl.checked;
+    return { age, heightCm, weightKg, ftpW, vo2max, trainingFocus, trackSessionRpe };
   }
 
   function markDirty() {
@@ -233,43 +282,64 @@ export async function mountProfile(root: HTMLElement) {
 
   function attachDirtyHandlers() {
     [ageEl, heightEl, weightEl, ftpEl, vo2El].forEach((el) => {
-      el.addEventListener("input", () => {
+      el.addEventListener(
+        "input",
+        () => {
+          state.current = readProfileFromForm();
+          markDirty();
+        },
+        eventOptions,
+      );
+    });
+
+    trackSessionRpeEl.addEventListener(
+      "change",
+      () => {
         state.current = readProfileFromForm();
         markDirty();
-      });
-    });
+      },
+      eventOptions,
+    );
   }
 
   function attachFocusHandlers() {
-    focusGroup.addEventListener("click", (event) => {
-      const target = event.target as HTMLElement;
-      const button = target.closest<HTMLButtonElement>("button[data-focus]");
-      if (!button) {
-        return;
-      }
-      const next = button.dataset.focus;
-      if (!next || state.current.trainingFocus[0] === next) {
-        return;
-      }
-      state.current.trainingFocus = [next];
-      markDirty();
-    });
+    focusGroup.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target as HTMLElement;
+        const button = target.closest<HTMLButtonElement>("button[data-focus]");
+        if (!button) {
+          return;
+        }
+        const next = button.dataset.focus;
+        if (!next || state.current.trainingFocus[0] === next) {
+          return;
+        }
+        state.current.trainingFocus = [next];
+        markDirty();
+      },
+      eventOptions,
+    );
 
-    focusGroup.addEventListener("keydown", (event) => {
-      if (event.key !== " ") {
-        return;
-      }
-      const target = event.target as HTMLElement;
-      const button = target.closest<HTMLButtonElement>("button[data-focus]");
-      if (!button) {
-        return;
-      }
-      event.preventDefault();
-      button.click();
-    });
+    focusGroup.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key !== " ") {
+          return;
+        }
+        const target = event.target as HTMLElement;
+        const button = target.closest<HTMLButtonElement>("button[data-focus]");
+        if (!button) {
+          return;
+        }
+        event.preventDefault();
+        button.click();
+      },
+      eventOptions,
+    );
   }
 
-  // 初期反映
+  // 蛻晄悄蜿肴丐
   setFormFromProfile(initial);
   renderStatus();
   renderSaveButton();
@@ -277,31 +347,45 @@ export async function mountProfile(root: HTMLElement) {
   attachDirtyHandlers();
   attachFocusHandlers();
 
-  // Save：IndexedDBへ保存 → SYNCED
-  btnSave.addEventListener("click", async () => {
-    state.current = readProfileFromForm();
-    await saveProfile(state.current);
-    state.lastSaved = cloneProfile(state.current);
-    state.dirty = false;
-    state.isSynced = true;
-    renderStatus();
-    renderSaveButton();
-    renderFocusPills();
-  });
+  // Save・唔ndexedDB縺ｸ菫晏ｭ・竊・SYNCED
+  btnSave.addEventListener(
+    "click",
+    async () => {
+      state.current = readProfileFromForm();
+      await saveProfile(state.current);
+      if (signal.aborted) {
+        return;
+      }
+      state.lastSaved = cloneProfile(state.current);
+      state.dirty = false;
+      state.isSynced = true;
+      renderStatus();
+      renderSaveButton();
+      renderFocusPills();
+    },
+    eventOptions,
+  );
 
-  // Resync：DBから読み直し→フォームへ上書き → SYNCED
-  btnResync.addEventListener("click", async () => {
-    const p = await loadProfile();
-    const next = p ?? DEFAULT_PROFILE;
-    state.current = cloneProfile(next);
-    state.lastSaved = p ? cloneProfile(p) : null;
-    state.dirty = false;
-    state.isSynced = !!p; // DBに無ければ“同期先が無い”のでfalseでもいいが、挙動は好みで
-    setFormFromProfile(next);
-    renderStatus();
-    renderSaveButton();
-    renderFocusPills();
-  });
+  // Resync・咼B縺九ｉ隱ｭ縺ｿ逶ｴ縺冷・繝輔か繝ｼ繝縺ｸ荳頑嶌縺・竊・SYNCED
+  btnResync.addEventListener(
+    "click",
+    async () => {
+      const p = await loadProfile();
+      if (signal.aborted) {
+        return;
+      }
+      const next = p ?? DEFAULT_PROFILE;
+      state.current = cloneProfile(next);
+      state.lastSaved = p ? cloneProfile(p) : null;
+      state.dirty = false;
+      state.isSynced = !!p;
+      setFormFromProfile(next);
+      renderStatus();
+      renderSaveButton();
+      renderFocusPills();
+    },
+    eventOptions,
+  );
 }
 
 function field(label: string, id: keyof ProfileData, unit: string, full = false) {

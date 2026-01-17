@@ -5,6 +5,7 @@ export type ProfileData = {
   ftpW: number;
   vo2max: number;
   trainingFocus: string[];
+  trackSessionRpe: boolean;
 };
 
 const DB_NAME = "tria_profile_test";
@@ -12,6 +13,7 @@ const DB_VERSION = 1;
 const STORE = "kv";
 const KEY = "profile";
 const DEFAULT_TRAINING_FOCUS = ["continuity"];
+const DEFAULT_TRACK_SESSION_RPE = true;
 
 function normalizeTrainingFocus(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -56,6 +58,7 @@ export async function loadProfile(): Promise<ProfileData | null> {
       resolve({
         ...value,
         trainingFocus: normalizeTrainingFocus(value.trainingFocus),
+        trackSessionRpe: value.trackSessionRpe ?? DEFAULT_TRACK_SESSION_RPE,
       });
     };
     req.onerror = () => reject(req.error);
