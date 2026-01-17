@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* お好みで。無くてもOK */
+html, body { height: 100%; }
+
