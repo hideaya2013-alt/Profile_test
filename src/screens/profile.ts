@@ -175,7 +175,7 @@ async function mountProfileInner(root: HTMLElement, signal: AbortSignal) {
           </button>
 
           <p id="hint" class="mt-3 text-xs text-slate-400">
-            蜈･蜉帙ｒ隗ｦ繧九→UNSYNC縺ｫ縺ｪ繧翫∪縺吶４ave縺ｧSYNCED縺ｫ謌ｻ繧翫∪縺吶３esync縺ｯDB縺ｮ蛟､縺ｧ荳頑嶌縺阪＠縺ｾ縺吶・
+            入力を触るとUNSYNCになります。SaveでSYNCEDに戻ります。ResyncはDBの値で上書きします。
           </p>
         </div>
       </section>
