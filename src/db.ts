@@ -122,13 +122,27 @@ export async function loadActivities(): Promise<Activity[]> {
         resolve([]);
         return;
       }
-      resolve(row.value);
+      const now = new Date().toISOString();
+      const normalizeCreatedAt = (
+        value: Activity & { createdAt?: string; notes?: string | null; comment?: string | null },
+      ) => {
+        const createdAt = value.createdAt ?? (isValidIso(value.startTime) ? value.startTime : now);
+        const notes = value.notes ?? value.comment ?? null;
+        const { comment: _comment, ...rest } = value;
+        return { ...rest, createdAt, notes };
+      };
+      resolve(row.value.map(normalizeCreatedAt));
     };
     req.onerror = () => reject(req.error);
 
     tx.oncomplete = () => db.close();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+function isValidIso(value: string | null | undefined) {
+  if (!value) return false;
+  return Number.isFinite(Date.parse(value));
 }
 
 export async function saveActivities(value: Activity[]): Promise<void> {

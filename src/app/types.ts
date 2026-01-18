@@ -1,4 +1,4 @@
-export type ScreenId = "profile" | "new-activity";
+export type ScreenId = "profile" | "new-activity" | "history";
 
 export type Cleanup = () => void;
 

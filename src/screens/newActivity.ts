@@ -21,6 +21,10 @@ type GpxPreview = {
     distance: string;
     elev: string;
   };
+  startTime: string | null;
+  durationSec: number | null;
+  distanceMeters: number | null;
+  elevMeters: number | null;
   hasHr: boolean;
   hasPower: boolean;
   hasSpeed: boolean;
@@ -86,6 +90,8 @@ const modeTabs: Array<{ id: EntryMode; label: string }> = [
 ];
 
 const MAX_GPX_DRAFTS = 3;
+const GPX_HEADER_BYTES = 4096;
+const GPX_SCAN_BYTES = 65536;
 const SAVE_SUCCESS_DELAY_MS = 1000;
 const SAVE_ERROR_DELAY_MS = 1500;
 
@@ -104,31 +110,8 @@ export function mountNewActivity(root: HTMLElement) {
     manualDate: "",
     manualStartTime: "",
     manualDuration: "",
-    gpxFile: null as File | null,
-    gpxDrafts: [
-      {
-        id: "gpx-1",
-        fileName: "Morning_Intervals.gpx",
-        dateLabel: "Today, 6:30 AM",
-        metrics: { time: "1:15:00", distance: "32.4 km", elev: "420 m" },
-        hasHr: true,
-        hasPower: true,
-        hasSpeed: false,
-        sRpe: 7,
-        sport: "bike",
-      },
-      {
-        id: "gpx-2",
-        fileName: "Swim_Session.gpx",
-        dateLabel: "Yesterday, 7:10 AM",
-        metrics: { time: "0:45:00", distance: "2.1 km", elev: "--" },
-        hasHr: false,
-        hasPower: false,
-        hasSpeed: false,
-        sRpe: null,
-        sport: null,
-      },
-    ] as GpxPreview[],
+    gpxDrafts: [] as GpxPreview[],
+    gpxNotice: null as string | null,
     gpxSaveState: "idle" as SaveFlowState,
     manualSaveState: "idle" as SaveFlowState,
     simulateSaveError: false,
@@ -205,10 +188,13 @@ export function mountNewActivity(root: HTMLElement) {
   }
 
   function render() {
-    const gpxName = state.gpxFile ? escapeHtml(state.gpxFile.name) : "No file selected";
-    const clearHidden = state.gpxFile ? "" : "hidden";
     const activeSaveState = currentSaveState();
     const saveLabel = saveButtonLabel(state.mode, activeSaveState);
+    const showGpxSaveHint =
+      state.mode === "gpx" &&
+      state.gpxDrafts.length > 0 &&
+      state.gpxSaveState === "idle" &&
+      !canSaveGpx();
 
     const tabButtons = modeTabs
       .map((tab) => {
@@ -402,27 +388,24 @@ export function mountNewActivity(root: HTMLElement) {
               <div class="text-sm font-medium text-slate-200">GPX Import</div>
               <div class="text-xs text-slate-400">Upload your activity file (coming soon).</div>
             </div>
-            <button
-              id="btnClearGpx"
-              type="button"
-              class="rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300 hover:border-slate-700 ${clearHidden}"
-            >
-              Clear
-            </button>
           </div>
 
           <input
             id="gpxFile"
             type="file"
-            accept=".gpx,.xml,application/gpx+xml,text/xml"
+            accept=".gpx,application/gpx+xml,text/xml,application/xml"
+            multiple
             class="mt-4 w-full rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-200
                    file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800/80 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-200
                    hover:file:bg-slate-700"
           />
-
-          <div class="mt-2 text-xs text-slate-400">
-            Selected: <span id="gpxName" class="text-slate-200">${gpxName}</span>
-          </div>
+          ${
+            state.gpxNotice
+              ? `<div class="mt-2 text-xs font-semibold text-amber-300">${escapeHtml(
+                  state.gpxNotice,
+                )}</div>`
+              : ""
+          }
         </div>
 
         <div class="mt-4 space-y-4">
@@ -465,6 +448,13 @@ export function mountNewActivity(root: HTMLElement) {
               >
                 ${saveLabel}
               </button>
+              ${
+                showGpxSaveHint
+                  ? `<div class="mt-2 text-xs font-semibold text-amber-300">
+                      sport と sRPE を全カード入力してください
+                    </div>`
+                  : ""
+              }
             </div>
           </section>
         </div>
@@ -699,31 +689,17 @@ export function mountNewActivity(root: HTMLElement) {
     }
 
     const gpxInput = root.querySelector<HTMLInputElement>("#gpxFile");
-    const gpxName = root.querySelector<HTMLSpanElement>("#gpxName");
-    const gpxClear = root.querySelector<HTMLButtonElement>("#btnClearGpx");
     const removeButtons = root.querySelectorAll<HTMLButtonElement>("[data-remove]");
     const sportButtons = root.querySelectorAll<HTMLButtonElement>("[data-card][data-sport]");
     const srpeInputs = root.querySelectorAll<HTMLInputElement>("[data-srpe]");
     const devButtons = root.querySelectorAll<HTMLButtonElement>("[data-dev-action]");
     const simulateSaveError = root.querySelector<HTMLInputElement>("#simulateSaveError");
 
-    if (gpxInput && gpxName && gpxClear) {
+    if (gpxInput) {
       gpxInput.addEventListener(
         "change",
         () => {
-          const file = gpxInput.files?.[0] ?? null;
-          state.gpxFile = file;
-          updateGpxStatus(gpxName, gpxClear, file);
-        },
-        { signal },
-      );
-
-      gpxClear.addEventListener(
-        "click",
-        () => {
-          gpxInput.value = "";
-          state.gpxFile = null;
-          updateGpxStatus(gpxName, gpxClear, null);
+          void handleGpxInput(gpxInput);
         },
         { signal },
       );
@@ -818,11 +794,86 @@ export function mountNewActivity(root: HTMLElement) {
     );
   }
 
+  async function handleGpxInput(input: HTMLInputElement) {
+    const files = Array.from(input.files ?? []);
+    if (files.length === 0) {
+      return;
+    }
+
+    let rejected = false;
+    let overLimit = false;
+    const additions: GpxPreview[] = [];
+
+    for (const file of files) {
+      if (state.gpxDrafts.length + additions.length >= MAX_GPX_DRAFTS) {
+        overLimit = true;
+        continue;
+      }
+      if (!isGpxExtension(file.name)) {
+        rejected = true;
+        continue;
+      }
+      try {
+        const headerText = await readTextSlice(file, 0, GPX_HEADER_BYTES);
+        if (!looksLikeGpx(headerText)) {
+          rejected = true;
+          continue;
+        }
+        const preview = await buildGpxPreview(file);
+        additions.push(preview);
+      } catch (error) {
+        rejected = true;
+      }
+    }
+
+    if (additions.length > 0) {
+      state.gpxDrafts = state.gpxDrafts.concat(additions).slice(0, MAX_GPX_DRAFTS);
+    }
+
+    if (rejected) {
+      state.gpxNotice = ".gpx 以外のファイルは読み込めません";
+    } else if (overLimit) {
+      state.gpxNotice = "最大3件まで追加できます";
+    } else {
+      state.gpxNotice = null;
+    }
+
+    input.value = "";
+    refresh();
+  }
+
   function createMockDraft(action: string): GpxPreview {
     mockCounter += 1;
-    if (action === "add-mock-null") {
+    const baseStart = new Date();
+    const buildDraft = (input: {
+      fileName: string;
+      dateLabel: string;
+      metrics: { time: string; distance: string; elev: string };
+      hasHr: boolean;
+      hasPower: boolean;
+      hasSpeed: boolean;
+      sRpe: number | null;
+      sport: GpxSport | null;
+    }): GpxPreview => {
       return {
-        id: `gpx-null-${mockCounter}`,
+        id: `gpx-${mockCounter}`,
+        fileName: input.fileName,
+        dateLabel: input.dateLabel,
+        metrics: input.metrics,
+        startTime: baseStart.toISOString(),
+        durationSec: parseDurationSeconds(input.metrics.time),
+        distanceMeters: parseDistanceMeters(input.metrics.distance),
+        elevMeters: parseDistanceMeters(input.metrics.elev),
+        hasHr: input.hasHr,
+        hasPower: input.hasPower,
+        hasSpeed: input.hasSpeed,
+        sRpe: input.sRpe,
+        sport: input.sport,
+      };
+    };
+
+    if (action === "add-mock-null") {
+      return buildDraft({
         fileName: "Unk_Sport.gpx",
         dateLabel: "Today, 8:15 AM",
         metrics: { time: "0:50:00", distance: "10.2 km", elev: "120 m" },
@@ -831,11 +882,10 @@ export function mountNewActivity(root: HTMLElement) {
         hasSpeed: true,
         sRpe: null,
         sport: null,
-      };
+      });
     }
     if (action === "add-mock-missing") {
-      return {
-        id: `gpx-missing-${mockCounter}`,
+      return buildDraft({
         fileName: "Commute_Ride.gpx",
         dateLabel: "Today, 7:05 AM",
         metrics: { time: "0:35:00", distance: "12.8 km", elev: "95 m" },
@@ -844,10 +894,9 @@ export function mountNewActivity(root: HTMLElement) {
         hasSpeed: false,
         sRpe: 6,
         sport: "bike",
-      };
+      });
     }
-    return {
-      id: `gpx-mock-${mockCounter}`,
+    return buildDraft({
       fileName: "Tempo_Run.gpx",
       dateLabel: "Yesterday, 6:05 PM",
       metrics: { time: "0:42:00", distance: "8.9 km", elev: "40 m" },
@@ -856,7 +905,7 @@ export function mountNewActivity(root: HTMLElement) {
       hasSpeed: true,
       sRpe: 7,
       sport: "run",
-    };
+    });
   }
 
   async function handleGpxSave() {
@@ -875,7 +924,7 @@ export function mountNewActivity(root: HTMLElement) {
       refresh();
       setDelayed(() => {
         state.gpxDrafts = [];
-        state.gpxFile = null;
+        state.gpxNotice = null;
         state.gpxSaveState = "idle";
         refresh();
       }, SAVE_SUCCESS_DELAY_MS);
@@ -928,11 +977,15 @@ export function mountNewActivity(root: HTMLElement) {
 
   function buildGpxActivity(card: GpxPreview): Activity {
     const now = new Date();
-    const durationSec = parseDurationSeconds(card.metrics.time) ?? 0;
-    const startTime = now.toISOString();
-    const endTime = new Date(now.getTime() + durationSec * 1000).toISOString();
-    const distanceMeters = parseDistanceMeters(card.metrics.distance);
-    const elevMeters = parseDistanceMeters(card.metrics.elev);
+    const createdAt = now.toISOString();
+    const durationSec = card.durationSec ?? 0;
+    const startTime = card.startTime ?? "";
+    const startMs = startTime ? Date.parse(startTime) : Number.NaN;
+    const endTime = Number.isFinite(startMs)
+      ? new Date(startMs + durationSec * 1000).toISOString()
+      : "";
+    const distanceMeters = card.distanceMeters ?? null;
+    const elevMeters = card.elevMeters ?? null;
 
     return {
       id: generateId(),
@@ -952,8 +1005,8 @@ export function mountNewActivity(root: HTMLElement) {
       hasSpeed: card.hasSpeed,
       sRpe: card.sRpe,
       notes: null,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
+      createdAt,
+      updatedAt: createdAt,
     };
   }
 
@@ -995,18 +1048,187 @@ export function mountNewActivity(root: HTMLElement) {
   }
 }
 
-function updateGpxStatus(
-  nameEl: HTMLSpanElement,
-  clearBtn: HTMLButtonElement,
-  file: File | null,
-) {
-  if (file) {
-    nameEl.textContent = file.name;
-    clearBtn.classList.remove("hidden");
-    return;
+function isGpxExtension(name: string) {
+  return name.toLowerCase().endsWith(".gpx");
+}
+
+function looksLikeGpx(text: string) {
+  const trimmed = text.trimStart();
+  return trimmed.startsWith("<?xml") || /<gpx[\\s>]/i.test(trimmed);
+}
+
+async function readTextSlice(file: File, start: number, length: number) {
+  const end = Math.min(file.size, start + length);
+  return file.slice(start, end).text();
+}
+
+async function buildGpxPreview(file: File): Promise<GpxPreview> {
+  const headText = await readTextSlice(file, 0, GPX_SCAN_BYTES);
+  const tailText =
+    file.size > GPX_SCAN_BYTES
+      ? await readTextSlice(file, Math.max(0, file.size - GPX_SCAN_BYTES), GPX_SCAN_BYTES)
+      : headText;
+  const startTime = extractFirstTime(headText);
+  const endTime = extractLastTime(tailText) ?? extractLastTime(headText);
+  const durationSec =
+    startTime && endTime
+      ? Math.max(0, Math.round((Date.parse(endTime) - Date.parse(startTime)) / 1000))
+      : null;
+  const distanceMeters = extractDistanceMeters(headText) ?? extractDistanceMeters(tailText);
+  const elevMeters = extractElevMeters(headText) ?? extractElevMeters(tailText);
+  const metrics = {
+    time: formatDuration(durationSec),
+    distance: formatDistance(distanceMeters),
+    elev: formatElev(elevMeters),
+  };
+  const hasHr = detectTag(headText, tailText, ["hr", "heart-rate", "heartrate"]);
+  const hasPower = detectTag(headText, tailText, ["power", "watts"]);
+  const hasSpeed = detectTag(headText, tailText, ["speed"]);
+  const sport = detectSport(headText) ?? detectSport(tailText);
+
+  return {
+    id: `gpx-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    fileName: file.name,
+    dateLabel: formatDateLabel(startTime),
+    metrics,
+    startTime,
+    durationSec,
+    distanceMeters,
+    elevMeters,
+    hasHr,
+    hasPower,
+    hasSpeed,
+    sRpe: null,
+    sport,
+  };
+}
+
+function extractFirstTime(text: string) {
+  const match = text.match(/<time>([^<]+)<\/time>/i);
+  return match ? normalizeIso(match[1]) : null;
+}
+
+function extractLastTime(text: string) {
+  const regex = /<time>([^<]+)<\/time>/gi;
+  let last: string | null = null;
+  let match: RegExpExecArray | null = null;
+  while ((match = regex.exec(text)) !== null) {
+    const iso = normalizeIso(match[1]);
+    if (iso) {
+      last = iso;
+    }
   }
-  nameEl.textContent = "No file selected";
-  clearBtn.classList.add("hidden");
+  return last;
+}
+
+function normalizeIso(value: string) {
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) {
+    return null;
+  }
+  return new Date(ms).toISOString();
+}
+
+function detectSport(text: string): GpxSport | null {
+  const match = text.match(/<(type|sport)[^>]*>([^<]+)<\/\1>/i);
+  if (!match) {
+    return null;
+  }
+  const raw = match[2].toLowerCase();
+  if (raw.includes("swim")) return "swim";
+  if (raw.includes("run")) return "run";
+  if (raw.includes("bike") || raw.includes("cycle") || raw.includes("cycling") || raw.includes("ride")) {
+    return "bike";
+  }
+  return null;
+}
+
+function detectTag(head: string, tail: string, names: string[]) {
+  return names.some((name) => hasTag(head, name) || hasTag(tail, name));
+}
+
+function hasTag(text: string, name: string) {
+  const regex = new RegExp(`<([\\w-]+:)?${name}\\b`, "i");
+  return regex.test(text);
+}
+
+function extractDistanceMeters(text: string) {
+  const match = text.match(/<([\\w-]+:)?distance[^>]*>([^<]+)</i);
+  if (!match) {
+    return null;
+  }
+  return parseDistanceValue(match[2]);
+}
+
+function extractElevMeters(text: string) {
+  const match = text.match(
+    /<([\\w-]+:)?(total_elevation_gain|elevation_gain|totalascent|totalelevation|elevgain)[^>]*>([^<]+)</i,
+  );
+  if (!match) {
+    return null;
+  }
+  return parseDistanceValue(match[3]);
+}
+
+function parseDistanceValue(value: string) {
+  const trimmed = value.trim();
+  const withUnit = parseDistanceMeters(trimmed);
+  if (withUnit !== null) {
+    return withUnit;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function formatDuration(value: number | null) {
+  if (!value || value <= 0) {
+    return "--";
+  }
+  const totalSeconds = Math.round(value);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatDistance(value: number | null) {
+  if (value === null) {
+    return "--";
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)} km`;
+  }
+  return `${Math.round(value)} m`;
+}
+
+function formatElev(value: number | null) {
+  if (value === null) {
+    return "--";
+  }
+  return `${Math.round(value)} m`;
+}
+
+function formatDateLabel(iso: string | null) {
+  if (!iso) {
+    return "Unknown time";
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown time";
+  }
+  const now = new Date();
+  const today = now.toDateString();
+  const target = date.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const label =
+    target === today
+      ? "Today"
+      : target === yesterday.toDateString()
+        ? "Yesterday"
+        : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${label}, ${time}`;
 }
 
 function generateId() {
@@ -1020,7 +1242,8 @@ function parseDateTime(date: string, time: string) {
   if (!date || !time) {
     return null;
   }
-  const result = new Date(`${date}T${time}`);
+  const normalizedTime = time.length === 5 ? `${time}:00` : time;
+  const result = new Date(`${date}T${normalizedTime}`);
   if (Number.isNaN(result.getTime())) {
     return null;
   }
@@ -1050,7 +1273,7 @@ function parseDurationSeconds(value: string) {
 }
 
 function parseDistanceMeters(value: string) {
-  const match = value.match(/([\\d.]+)\\s*(km|m)\\b/i);
+  const match = value.match(/([\d.]+)\s*(km|m)\b/i);
   if (!match) {
     return null;
   }
@@ -1078,12 +1301,12 @@ function getSportIcon(sport: GpxSport) {
 }
 
 function withSvgClass(svg: string, cls: string) {
-  return svg.replace(/<svg\\b([^>]*)>/, (match, attrs) => {
-    const hasClass = /class\\s*=/.test(attrs);
+  return svg.replace(/<svg\b([^>]*)>/, (match, attrs) => {
+    const hasClass = /class\s*=/.test(attrs);
     if (hasClass) {
-      return `<svg${attrs.replace(/class\\s*=\\s*\"([^\"]*)\"/, `class=\"$1 ${cls}\"`)}>`;
+      return `<svg${attrs.replace(/class\s*=\s*"([^"]*)"/, `class="$1 ${cls}"`)}>`;
     }
-    return `<svg class=\"${cls}\"${attrs}>`;
+    return `<svg class="${cls}"${attrs}>`;
   });
 }
 
