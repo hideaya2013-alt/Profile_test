@@ -8,10 +8,36 @@ export type ProfileData = {
   trackSessionRpe: boolean;
 };
 
+export type Sport = "swim" | "bike" | "run" | "strength" | "other";
+export type ActivitySource = "gpx" | "manual";
+
+export type Activity = {
+  id: string;
+  source: ActivitySource;
+  sport: Sport | null;
+  title: string;
+  startTime: string;
+  endTime: string;
+  durationSec: number;
+  distanceMeters: number | null;
+  elevMeters: number | null;
+  avgHr: number | null;
+  avgPower: number | null;
+  avgSpeed: number | null;
+  hasHr: boolean;
+  hasPower: boolean;
+  hasSpeed: boolean;
+  sRpe: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 const DB_NAME = "tria_profile_test";
 const DB_VERSION = 1;
 const STORE = "kv";
 const KEY = "profile";
+const ACTIVITIES_KEY = "activities";
 const DEFAULT_TRAINING_FOCUS = ["continuity"];
 const DEFAULT_TRACK_SESSION_RPE = true;
 
@@ -81,4 +107,47 @@ export async function saveProfile(value: ProfileData): Promise<void> {
     };
     tx.onerror = () => reject(tx.error);
   });
+}
+
+export async function loadActivities(): Promise<Activity[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const store = tx.objectStore(STORE);
+    const req = store.get(ACTIVITIES_KEY);
+
+    req.onsuccess = () => {
+      const row = req.result as { key: string; value: Activity[] } | undefined;
+      if (!Array.isArray(row?.value)) {
+        resolve([]);
+        return;
+      }
+      resolve(row.value);
+    };
+    req.onerror = () => reject(req.error);
+
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function saveActivities(value: Activity[]): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    store.put({ key: ACTIVITIES_KEY, value });
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function addActivities(value: Activity[]): Promise<void> {
+  const current = await loadActivities();
+  const next = current.concat(value);
+  await saveActivities(next);
 }

@@ -1,3 +1,4 @@
+import { addActivities, type Activity, type Sport } from "../db";
 import bikeSvg from "../assets/icons/focus/bike.svg?raw";
 import gymSvg from "../assets/icons/focus/gym.svg?raw";
 import hrSvg from "../assets/icons/focus/hr.svg?raw";
@@ -9,6 +10,7 @@ import swimSvg from "../assets/icons/focus/swim.svg?raw";
 type SportOption = "Swim" | "Bike" | "Run" | "Gym";
 type EntryMode = "gpx" | "manual";
 type GpxSport = "swim" | "bike" | "run";
+type SaveFlowState = "idle" | "saving" | "saved" | "error";
 
 type GpxPreview = {
   id: string;
@@ -25,6 +27,45 @@ type GpxPreview = {
   sRpe: number | null;
   sport: GpxSport | null;
 };
+
+type SaveState = "disabled" | "saving" | "saved" | "error" | "ready";
+
+const BTN_BASE =
+  "inline-flex items-center justify-center gap-2 " +
+  "h-10 px-4 rounded-xl border text-sm font-medium " +
+  "transition-colors transition-shadow " +
+  "select-none";
+
+const BTN_DISABLED = "text-slate-400 border-slate-600/60 cursor-not-allowed opacity-70";
+const BTN_SAVING = "text-slate-200 border-slate-500/70 cursor-not-allowed";
+const BTN_SAVED =
+  "text-emerald-400 border-emerald-400/50 " +
+  "ring-2 ring-emerald-400/60 " +
+  "shadow-[0_0_0_1px_rgba(16,185,129,0.25)] " +
+  "cursor-not-allowed";
+const BTN_ERROR =
+  "text-rose-400 border-rose-400/50 " +
+  "ring-2 ring-rose-400/60 " +
+  "shadow-[0_0_0_1px_rgba(244,63,94,0.25)] " +
+  "cursor-not-allowed";
+
+function saveButtonClass(state: SaveState) {
+  const ready =
+    "text-slate-100 border-slate-500/70 " +
+    "hover:border-slate-300/70 hover:text-white " +
+    "active:translate-y-[1px] " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60";
+
+  const map: Record<SaveState, string> = {
+    disabled: BTN_DISABLED,
+    saving: BTN_SAVING,
+    saved: BTN_SAVED,
+    error: BTN_ERROR,
+    ready,
+  };
+
+  return `${BTN_BASE} ${map[state]}`;
+}
 
 const sportOptions: Array<{ value: SportOption; label: string; icon: string }> = [
   { value: "Swim", label: "Swim", icon: swimSvg },
@@ -44,16 +85,27 @@ const modeTabs: Array<{ id: EntryMode; label: string }> = [
   { id: "manual", label: "Manual Entry" },
 ];
 
+const MAX_GPX_DRAFTS = 3;
+const SAVE_SUCCESS_DELAY_MS = 1000;
+const SAVE_ERROR_DELAY_MS = 1500;
+
 export function mountNewActivity(root: HTMLElement) {
   let controller: AbortController | null = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let mockCounter = 2;
+
+  const isDeveloperMode = new URLSearchParams(window.location.search).has("dev");
 
   const state = {
     mode: "manual" as EntryMode,
     sport: "Swim" as SportOption,
     srpe: 7,
     notes: "",
+    manualDate: "",
+    manualStartTime: "",
+    manualDuration: "",
     gpxFile: null as File | null,
-    gpxPreviews: [
+    gpxDrafts: [
       {
         id: "gpx-1",
         fileName: "Morning_Intervals.gpx",
@@ -77,12 +129,18 @@ export function mountNewActivity(root: HTMLElement) {
         sport: null,
       },
     ] as GpxPreview[],
+    gpxSaveState: "idle" as SaveFlowState,
+    manualSaveState: "idle" as SaveFlowState,
+    simulateSaveError: false,
   };
 
   refresh();
 
   return () => {
     controller?.abort();
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
   };
 
   function refresh() {
@@ -92,10 +150,65 @@ export function mountNewActivity(root: HTMLElement) {
     bind(controller.signal);
   }
 
+  function setDelayed(fn: () => void, delayMs: number) {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    timeoutId = setTimeout(fn, delayMs);
+  }
+
+  function canSaveGpx() {
+    if (state.gpxDrafts.length === 0) {
+      return false;
+    }
+    return state.gpxDrafts.every((card) => card.sport !== null && card.sRpe !== null);
+  }
+
+  function canSaveManual() {
+    if (!state.manualDate || !state.manualStartTime) {
+      return false;
+    }
+    const durationMin = parseNumber(state.manualDuration);
+    return durationMin !== null && durationMin > 0;
+  }
+
+  function resolveSaveState(flow: SaveFlowState, canSave: boolean): SaveState {
+    if (flow === "saving") return "saving";
+    if (flow === "saved") return "saved";
+    if (flow === "error") return "error";
+    return canSave ? "ready" : "disabled";
+  }
+
+  function currentSaveState(): SaveState {
+    if (state.mode === "gpx") {
+      return resolveSaveState(state.gpxSaveState, canSaveGpx());
+    }
+    return resolveSaveState(state.manualSaveState, canSaveManual());
+  }
+
+  function saveButtonLabel(mode: EntryMode, saveState: SaveState) {
+    if (saveState === "saving") return "Saving...";
+    if (saveState === "saved") return "Saved";
+    if (saveState === "error") return "Error";
+    return mode === "gpx" ? "Import GPX" : "Save Activity";
+  }
+
+  function updateSaveUI() {
+    const button = root.querySelector<HTMLButtonElement>("#btnSave");
+    if (!button) {
+      return;
+    }
+    const saveState = currentSaveState();
+    button.className = saveButtonClass(saveState);
+    button.disabled = saveState !== "ready";
+    button.textContent = saveButtonLabel(state.mode, saveState);
+  }
+
   function render() {
     const gpxName = state.gpxFile ? escapeHtml(state.gpxFile.name) : "No file selected";
     const clearHidden = state.gpxFile ? "" : "hidden";
-    const saveLabel = state.mode === "gpx" ? "Import GPX (coming soon)" : "Save Activity (coming soon)";
+    const activeSaveState = currentSaveState();
+    const saveLabel = saveButtonLabel(state.mode, activeSaveState);
 
     const tabButtons = modeTabs
       .map((tab) => {
@@ -165,7 +278,9 @@ export function mountNewActivity(root: HTMLElement) {
               <span class="text-sm font-medium text-slate-200">Date</span>
             </div>
             <input
+              id="manualDate"
               type="date"
+              value="${escapeHtml(state.manualDate)}"
               class="w-full rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-base text-slate-100 outline-none
                      focus:border-sky-500/70 focus:ring-2 focus:ring-sky-500/20"
             />
@@ -176,7 +291,9 @@ export function mountNewActivity(root: HTMLElement) {
               <span class="text-sm font-medium text-slate-200">Start Time</span>
             </div>
             <input
+              id="manualStartTime"
               type="time"
+              value="${escapeHtml(state.manualStartTime)}"
               class="w-full rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-base text-slate-100 outline-none
                      focus:border-sky-500/70 focus:ring-2 focus:ring-sky-500/20"
             />
@@ -187,7 +304,9 @@ export function mountNewActivity(root: HTMLElement) {
               <span class="text-sm font-medium text-slate-200">Duration (min)</span>
             </div>
             <input
+              id="manualDuration"
               inputmode="decimal"
+              value="${escapeHtml(state.manualDuration)}"
               class="w-full rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-base text-slate-100 outline-none
                      focus:border-sky-500/70 focus:ring-2 focus:ring-sky-500/20"
               placeholder="45"
@@ -230,10 +349,50 @@ export function mountNewActivity(root: HTMLElement) {
       </div>
     `;
 
-    const gpxCards = state.gpxPreviews
-      .slice(0, 3)
+    const gpxCards = state.gpxDrafts
+      .slice(0, MAX_GPX_DRAFTS)
       .map((card) => renderGpxCard(card))
       .join("");
+
+    const developerTools = isDeveloperMode
+      ? `
+      <div class="mt-4 rounded-2xl border border-dashed border-slate-700/80 bg-slate-950/40 p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Developer Tools</div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-dev-action="add-mock"
+            class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300 hover:border-slate-500"
+          >
+            Add Mock GPX
+          </button>
+          <button
+            type="button"
+            data-dev-action="add-mock-null"
+            class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300 hover:border-slate-500"
+          >
+            Add Mock (sport=null)
+          </button>
+          <button
+            type="button"
+            data-dev-action="add-mock-missing"
+            class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300 hover:border-slate-500"
+          >
+            Add Mock (missing HR)
+          </button>
+        </div>
+        <label class="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-300">
+          <input
+            id="simulateSaveError"
+            type="checkbox"
+            ${state.simulateSaveError ? "checked" : ""}
+            class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/60"
+          />
+          Simulate Save Error
+        </label>
+      </div>
+    `
+      : "";
 
     const gpxPanel = `
       <div id="panel-gpx" role="tabpanel" aria-labelledby="tab-gpx">
@@ -269,6 +428,8 @@ export function mountNewActivity(root: HTMLElement) {
         <div class="mt-4 space-y-4">
           ${gpxCards}
         </div>
+
+        ${developerTools}
       </div>
     `;
 
@@ -297,9 +458,10 @@ export function mountNewActivity(root: HTMLElement) {
 
             <div class="mt-6">
               <button
+                id="btnSave"
                 type="button"
-                class="w-full rounded-2xl bg-slate-800/70 py-4 font-semibold text-slate-300"
-                disabled
+                class="${saveButtonClass(activeSaveState)}"
+                ${activeSaveState !== "ready" ? "disabled" : ""}
               >
                 ${saveLabel}
               </button>
@@ -314,7 +476,6 @@ export function mountNewActivity(root: HTMLElement) {
     const srpeLabel = card.sRpe === null ? "--" : String(card.sRpe);
     const srpeValue = card.sRpe ?? 7;
     const sportIcon = card.sport ? getSportIcon(card.sport) : "";
-    const sportLabel = card.sport ? formatSportLabel(card.sport) : "Select";
     const sportSelect =
       card.sport === null
         ? `
@@ -449,11 +610,27 @@ export function mountNewActivity(root: HTMLElement) {
       );
     });
 
+    const saveButton = root.querySelector<HTMLButtonElement>("#btnSave");
+    saveButton?.addEventListener(
+      "click",
+      async () => {
+        if (state.mode === "gpx") {
+          await handleGpxSave();
+        } else {
+          await handleManualSave();
+        }
+      },
+      { signal },
+    );
+
     if (state.mode === "manual") {
       const sportInputs = root.querySelectorAll<HTMLInputElement>('input[name="sport"]');
       const srpeRange = root.querySelector<HTMLInputElement>("#srpeRange");
       const srpeValue = root.querySelector<HTMLSpanElement>("#srpeValue");
       const notes = root.querySelector<HTMLTextAreaElement>("#notes");
+      const manualDate = root.querySelector<HTMLInputElement>("#manualDate");
+      const manualStartTime = root.querySelector<HTMLInputElement>("#manualStartTime");
+      const manualDuration = root.querySelector<HTMLInputElement>("#manualDuration");
 
       sportInputs.forEach((input) => {
         input.addEventListener(
@@ -490,6 +667,34 @@ export function mountNewActivity(root: HTMLElement) {
           { signal },
         );
       }
+
+      manualDate?.addEventListener(
+        "input",
+        () => {
+          state.manualDate = manualDate.value;
+          updateSaveUI();
+        },
+        { signal },
+      );
+
+      manualStartTime?.addEventListener(
+        "input",
+        () => {
+          state.manualStartTime = manualStartTime.value;
+          updateSaveUI();
+        },
+        { signal },
+      );
+
+      manualDuration?.addEventListener(
+        "input",
+        () => {
+          state.manualDuration = manualDuration.value;
+          updateSaveUI();
+        },
+        { signal },
+      );
+
       return;
     }
 
@@ -499,6 +704,8 @@ export function mountNewActivity(root: HTMLElement) {
     const removeButtons = root.querySelectorAll<HTMLButtonElement>("[data-remove]");
     const sportButtons = root.querySelectorAll<HTMLButtonElement>("[data-card][data-sport]");
     const srpeInputs = root.querySelectorAll<HTMLInputElement>("[data-srpe]");
+    const devButtons = root.querySelectorAll<HTMLButtonElement>("[data-dev-action]");
+    const simulateSaveError = root.querySelector<HTMLInputElement>("#simulateSaveError");
 
     if (gpxInput && gpxName && gpxClear) {
       gpxInput.addEventListener(
@@ -530,7 +737,7 @@ export function mountNewActivity(root: HTMLElement) {
           if (!id) {
             return;
           }
-          state.gpxPreviews = state.gpxPreviews.filter((entry) => entry.id !== id);
+          state.gpxDrafts = state.gpxDrafts.filter((entry) => entry.id !== id);
           refresh();
         },
         { signal },
@@ -546,7 +753,7 @@ export function mountNewActivity(root: HTMLElement) {
           if (!id || !nextSport) {
             return;
           }
-          const target = state.gpxPreviews.find((entry) => entry.id === id);
+          const target = state.gpxDrafts.find((entry) => entry.id === id);
           if (!target) {
             return;
           }
@@ -569,7 +776,7 @@ export function mountNewActivity(root: HTMLElement) {
           if (!Number.isFinite(value)) {
             return;
           }
-          const target = state.gpxPreviews.find((entry) => entry.id === id);
+          const target = state.gpxDrafts.find((entry) => entry.id === id);
           if (!target) {
             return;
           }
@@ -578,10 +785,213 @@ export function mountNewActivity(root: HTMLElement) {
           if (label) {
             label.textContent = `${value} /10`;
           }
+          updateSaveUI();
         },
         { signal },
       );
     });
+
+    devButtons.forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          if (state.gpxDrafts.length >= MAX_GPX_DRAFTS) {
+            return;
+          }
+          const action = button.dataset.devAction;
+          if (!action) {
+            return;
+          }
+          state.gpxDrafts = state.gpxDrafts.concat(createMockDraft(action));
+          refresh();
+        },
+        { signal },
+      );
+    });
+
+    simulateSaveError?.addEventListener(
+      "change",
+      () => {
+        state.simulateSaveError = simulateSaveError.checked;
+      },
+      { signal },
+    );
+  }
+
+  function createMockDraft(action: string): GpxPreview {
+    mockCounter += 1;
+    if (action === "add-mock-null") {
+      return {
+        id: `gpx-null-${mockCounter}`,
+        fileName: "Unk_Sport.gpx",
+        dateLabel: "Today, 8:15 AM",
+        metrics: { time: "0:50:00", distance: "10.2 km", elev: "120 m" },
+        hasHr: true,
+        hasPower: false,
+        hasSpeed: true,
+        sRpe: null,
+        sport: null,
+      };
+    }
+    if (action === "add-mock-missing") {
+      return {
+        id: `gpx-missing-${mockCounter}`,
+        fileName: "Commute_Ride.gpx",
+        dateLabel: "Today, 7:05 AM",
+        metrics: { time: "0:35:00", distance: "12.8 km", elev: "95 m" },
+        hasHr: false,
+        hasPower: true,
+        hasSpeed: false,
+        sRpe: 6,
+        sport: "bike",
+      };
+    }
+    return {
+      id: `gpx-mock-${mockCounter}`,
+      fileName: "Tempo_Run.gpx",
+      dateLabel: "Yesterday, 6:05 PM",
+      metrics: { time: "0:42:00", distance: "8.9 km", elev: "40 m" },
+      hasHr: true,
+      hasPower: false,
+      hasSpeed: true,
+      sRpe: 7,
+      sport: "run",
+    };
+  }
+
+  async function handleGpxSave() {
+    if (state.gpxSaveState !== "idle" || !canSaveGpx()) {
+      return;
+    }
+    state.gpxSaveState = "saving";
+    refresh();
+    try {
+      if (state.simulateSaveError) {
+        throw new Error("Simulated save error");
+      }
+      const activities = state.gpxDrafts.map((card) => buildGpxActivity(card));
+      await addActivities(activities);
+      state.gpxSaveState = "saved";
+      refresh();
+      setDelayed(() => {
+        state.gpxDrafts = [];
+        state.gpxFile = null;
+        state.gpxSaveState = "idle";
+        refresh();
+      }, SAVE_SUCCESS_DELAY_MS);
+    } catch (error) {
+      state.gpxSaveState = "error";
+      refresh();
+      setDelayed(() => {
+        state.gpxSaveState = "idle";
+        refresh();
+      }, SAVE_ERROR_DELAY_MS);
+    }
+  }
+
+  async function handleManualSave() {
+    if (state.manualSaveState !== "idle" || !canSaveManual()) {
+      return;
+    }
+    state.manualSaveState = "saving";
+    refresh();
+    try {
+      if (state.simulateSaveError) {
+        throw new Error("Simulated save error");
+      }
+      const activity = buildManualActivity();
+      if (!activity) {
+        throw new Error("Invalid manual entry");
+      }
+      await addActivities([activity]);
+      state.manualSaveState = "saved";
+      refresh();
+      setDelayed(() => {
+        state.manualSaveState = "idle";
+        state.sport = "Swim";
+        state.srpe = 7;
+        state.notes = "";
+        state.manualDate = "";
+        state.manualStartTime = "";
+        state.manualDuration = "";
+        refresh();
+      }, SAVE_SUCCESS_DELAY_MS);
+    } catch (error) {
+      state.manualSaveState = "error";
+      refresh();
+      setDelayed(() => {
+        state.manualSaveState = "idle";
+        refresh();
+      }, SAVE_ERROR_DELAY_MS);
+    }
+  }
+
+  function buildGpxActivity(card: GpxPreview): Activity {
+    const now = new Date();
+    const durationSec = parseDurationSeconds(card.metrics.time) ?? 0;
+    const startTime = now.toISOString();
+    const endTime = new Date(now.getTime() + durationSec * 1000).toISOString();
+    const distanceMeters = parseDistanceMeters(card.metrics.distance);
+    const elevMeters = parseDistanceMeters(card.metrics.elev);
+
+    return {
+      id: generateId(),
+      source: "gpx",
+      sport: card.sport,
+      title: card.fileName,
+      startTime,
+      endTime,
+      durationSec,
+      distanceMeters,
+      elevMeters,
+      avgHr: null,
+      avgPower: null,
+      avgSpeed: null,
+      hasHr: card.hasHr,
+      hasPower: card.hasPower,
+      hasSpeed: card.hasSpeed,
+      sRpe: card.sRpe,
+      notes: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+  }
+
+  function buildManualActivity(): Activity | null {
+    const durationMin = parseNumber(state.manualDuration);
+    if (durationMin === null || durationMin <= 0) {
+      return null;
+    }
+    const start = parseDateTime(state.manualDate, state.manualStartTime);
+    if (!start) {
+      return null;
+    }
+    const durationSec = Math.round(durationMin * 60);
+    const endTime = new Date(start.getTime() + durationSec * 1000).toISOString();
+    const now = new Date().toISOString();
+    const notes = state.notes.trim() ? state.notes.trim() : null;
+
+    return {
+      id: generateId(),
+      source: "manual",
+      sport: mapSportOption(state.sport),
+      title: "Manual Entry",
+      startTime: start.toISOString(),
+      endTime,
+      durationSec,
+      distanceMeters: null,
+      elevMeters: null,
+      avgHr: null,
+      avgPower: null,
+      avgSpeed: null,
+      hasHr: false,
+      hasPower: false,
+      hasSpeed: false,
+      sRpe: state.srpe,
+      notes,
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 }
 
@@ -599,25 +1009,81 @@ function updateGpxStatus(
   clearBtn.classList.add("hidden");
 }
 
+function generateId() {
+  if (crypto?.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `act_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function parseDateTime(date: string, time: string) {
+  if (!date || !time) {
+    return null;
+  }
+  const result = new Date(`${date}T${time}`);
+  if (Number.isNaN(result.getTime())) {
+    return null;
+  }
+  return result;
+}
+
+function parseNumber(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseDurationSeconds(value: string) {
+  const parts = value.split(":").map((part) => Number(part));
+  if (parts.some((part) => !Number.isFinite(part))) {
+    return null;
+  }
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  }
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  return null;
+}
+
+function parseDistanceMeters(value: string) {
+  const match = value.match(/([\\d.]+)\\s*(km|m)\\b/i);
+  if (!match) {
+    return null;
+  }
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+  if (match[2].toLowerCase() === "km") {
+    return Math.round(amount * 1000);
+  }
+  return Math.round(amount);
+}
+
+function mapSportOption(option: SportOption): Sport {
+  if (option === "Swim") return "swim";
+  if (option === "Run") return "run";
+  if (option === "Gym") return "strength";
+  return "bike";
+}
+
 function getSportIcon(sport: GpxSport) {
   if (sport === "swim") return swimSvg;
   if (sport === "run") return runSvg;
   return bikeSvg;
 }
 
-function formatSportLabel(sport: GpxSport) {
-  if (sport === "swim") return "Swim";
-  if (sport === "run") return "Run";
-  return "Bike";
-}
-
 function withSvgClass(svg: string, cls: string) {
-  return svg.replace(/<svg\b([^>]*)>/, (match, attrs) => {
-    const hasClass = /class\s*=/.test(attrs);
+  return svg.replace(/<svg\\b([^>]*)>/, (match, attrs) => {
+    const hasClass = /class\\s*=/.test(attrs);
     if (hasClass) {
-      return `<svg${attrs.replace(/class\s*=\s*"([^"]*)"/, `class="$1 ${cls}"`)}>`;
+      return `<svg${attrs.replace(/class\\s*=\\s*\"([^\"]*)\"/, `class=\"$1 ${cls}\"`)}>`;
     }
-    return `<svg class="${cls}"${attrs}>`;
+    return `<svg class=\"${cls}\"${attrs}>`;
   });
 }
 
