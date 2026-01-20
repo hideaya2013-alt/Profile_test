@@ -1,4 +1,4 @@
-# skill.md (Skill Index)
+# SKILL.md (Skill Index)
 
 ## Skills
 - Frontend_DynamicIcon_StateDriven

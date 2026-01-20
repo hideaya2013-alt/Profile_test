@@ -1,4 +1,4 @@
-import { loadActivities, type Activity, type Sport } from "../db";
+import { clearActivities, deleteActivity, loadActivities, type Activity, type Sport } from "../db";
 import bikeSvg from "../assets/icons/focus/bike.svg?raw";
 import gymSvg from "../assets/icons/focus/gym.svg?raw";
 import hrSvg from "../assets/icons/focus/hr.svg?raw";
@@ -7,13 +7,14 @@ import runSvg from "../assets/icons/focus/run.svg?raw";
 import spdSvg from "../assets/icons/focus/spd.svg?raw";
 import swimSvg from "../assets/icons/focus/swim.svg?raw";
 
-type SportFilter = "all" | "swim" | "bike" | "run";
+type SportFilter = "all" | "swim" | "bike" | "run" | "other";
 
 const filters: Array<{ id: SportFilter; label: string }> = [
   { id: "all", label: "All" },
   { id: "swim", label: "Swim" },
   { id: "bike", label: "Bike" },
   { id: "run", label: "Run" },
+  { id: "other", label: "Other" },
 ];
 
 export function mountHistory(root: HTMLElement) {
@@ -42,6 +43,15 @@ export function mountHistory(root: HTMLElement) {
     refresh();
   }
 
+  async function reloadActivities() {
+    const activities = await loadActivities();
+    if (disposed) {
+      return;
+    }
+    state.activities = activities;
+    refresh();
+  }
+
   function refresh() {
     controller?.abort();
     controller = new AbortController();
@@ -50,12 +60,11 @@ export function mountHistory(root: HTMLElement) {
   }
 
   function render() {
-    const sorted = [...state.activities].sort(compareActivityDesc);
-    const filtered =
-      state.filter === "all" ? sorted : sorted.filter((activity) => activity.sport === state.filter);
+    const filtered = state.activities.filter((activity) => matchesFilter(activity, state.filter));
+    const sorted = [...filtered].sort(compareActivityDesc);
 
-    const cards = filtered.length
-      ? filtered.map((activity) => renderActivityCard(activity, isDeveloperMode)).join("")
+    const cards = sorted.length
+      ? sorted.map((activity) => renderActivityCard(activity, isDeveloperMode)).join("")
       : `<div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-400">
            No activities yet.
          </div>`;
@@ -80,6 +89,20 @@ export function mountHistory(root: HTMLElement) {
       })
       .join("");
 
+    const devActions = isDeveloperMode
+      ? `
+        <div class="mt-4 flex justify-end">
+          <button
+            type="button"
+            data-clear="all"
+            class="rounded-full border border-rose-400/40 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-200 hover:border-rose-300/60"
+          >
+            Clear All (Dev)
+          </button>
+        </div>
+      `
+      : "";
+
     root.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-slate-100">
         <div class="mx-auto max-w-[520px] px-5 py-6">
@@ -95,6 +118,8 @@ export function mountHistory(root: HTMLElement) {
               ${filterButtons}
             </div>
           </section>
+
+          ${devActions}
 
           <section class="mt-5 space-y-4">
             ${cards}
@@ -120,6 +145,38 @@ export function mountHistory(root: HTMLElement) {
         { signal },
       );
     });
+
+    const deleteButtons = root.querySelectorAll<HTMLButtonElement>("[data-delete]");
+    deleteButtons.forEach((button) => {
+      button.addEventListener(
+        "click",
+        async () => {
+          const id = button.dataset.delete;
+          if (!id) {
+            return;
+          }
+          if (!window.confirm("このアクティビティを削除しますか？")) {
+            return;
+          }
+          await deleteActivity(id);
+          await reloadActivities();
+        },
+        { signal },
+      );
+    });
+
+    const clearButton = root.querySelector<HTMLButtonElement>("[data-clear]");
+    clearButton?.addEventListener(
+      "click",
+      async () => {
+        if (!window.confirm("全件削除しますか？")) {
+          return;
+        }
+        await clearActivities();
+        await reloadActivities();
+      },
+      { signal },
+    );
   }
 }
 
@@ -172,14 +229,23 @@ function renderActivityCard(activity: Activity, showJson: boolean) {
                 : `<span class="text-xs font-semibold text-slate-500">?</span>`
             }
           </div>
-          <div>
-            <div class="text-sm font-semibold text-slate-100">${escapeHtml(activity.title)}</div>
-            <div class="text-xs text-slate-400">${escapeHtml(dateLabel)}</div>
+            <div>
+              <div class="text-sm font-semibold text-slate-100">${escapeHtml(activity.title)}</div>
+              <div class="text-xs text-slate-400">${escapeHtml(dateLabel)}</div>
+            </div>
           </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            data-delete="${activity.id}"
+            class="rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300 hover:border-rose-400/60 hover:text-rose-200"
+          >
+            Delete
+          </button>
+          <span class="rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300">
+            ${activity.source === "gpx" ? "GPX" : "Manual"}
+          </span>
         </div>
-        <span class="rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300">
-          ${activity.source === "gpx" ? "GPX" : "Manual"}
-        </span>
       </div>
 
       <div class="mt-4 grid grid-cols-3 gap-3 rounded-xl border border-slate-900/80 bg-slate-950/60 px-3 py-2 text-center">
@@ -238,6 +304,16 @@ function toMs(iso?: string | null): number | null {
   }
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : null;
+}
+
+function matchesFilter(activity: Activity, filter: SportFilter) {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "other") {
+    return activity.sport === null || !["swim", "bike", "run"].includes(activity.sport);
+  }
+  return activity.sport === filter;
 }
 
 function formatDuration(value: number) {

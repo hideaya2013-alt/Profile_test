@@ -13,7 +13,13 @@
 - Frontend_SelectablePill_WithIcon
   - 選択式ピル（タグUI）で、選択状態に応じてアイコンとスタイルを切り替える（単一/複数対応）
   - Path: `./Frontend_SelectablePill_WithIcon/skill.md`
-  - Status: 🧪 これから実装
+  - Status: 🧪 実装済
+
+- Frontend_ToggleSwitch_PeerA11y
+  - checkbox（真の入力）を、見た目だけ「トグルスイッチ」に変換する。
+  - ON/OFF を boolean で扱う
+  - キーボード操作/アクセシビリティを壊さない（Tab/Space/Enter）
+  - UIは Tailwind の peer で状態反映（peer-checked / peer-disabled）
 
 ## Conventions
 

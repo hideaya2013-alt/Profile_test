@@ -2,7 +2,7 @@
 
 この文書は **本プロジェクト固有**。CODEX.md（不変契約）に反しない範囲で更新してよい。
 
-最終更新: 2026-01-18
+最終更新: 2026-01-20
 
 ---
 
@@ -51,7 +51,9 @@
 - GPX Import / Manual Entry の両方を **Activity 1本**に格納する（分離しない）
 
 ```ts
-export type Sport = 'swim' | 'bike' | 'run' | 'strength' | 'other';
+export type Sport = 'swim' | 'bike' | 'run' | 'strength' | 'other'; 
+/** 2026.1.20改訂 Other は swim/bike/run 以外の sport をすべて含む（strength/other 等。Gym UIは strength などに寄せる）
+- 表示順は全フィルタ共通で compareActivityDesc（startTime→createdAt→id の降順）を使用し、決定的にする */
 export type ActivitySource = 'gpx' | 'manual';
 
 export interface Activity {
@@ -206,7 +208,7 @@ plan_patch は Apply で反映（自動反映しない）
 
 各カードに削除ボタン
 
-将来 menu と chat に分割する可能性あり（ブロック増加OK）
+将来 menu と chat に分割する可能性あり（ブロック増加OK） /**2026.1.20改訂 menuとchatを分離に決定*/
 
 4. アイコン配置（本プロジェクトの運用）
 外部CDNは禁止（CODEX準拠）

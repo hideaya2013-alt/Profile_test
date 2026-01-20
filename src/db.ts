@@ -165,3 +165,16 @@ export async function addActivities(value: Activity[]): Promise<void> {
   const next = current.concat(value);
   await saveActivities(next);
 }
+
+export async function deleteActivity(id: string): Promise<void> {
+  const current = await loadActivities();
+  const next = current.filter((entry) => entry.id !== id);
+  if (next.length === current.length) {
+    return;
+  }
+  await saveActivities(next);
+}
+
+export async function clearActivities(): Promise<void> {
+  await saveActivities([]);
+}
