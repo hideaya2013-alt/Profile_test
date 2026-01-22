@@ -9,7 +9,7 @@ export type ProfileData = {
 };
 
 export type Sport = "swim" | "bike" | "run" | "strength" | "other";
-export type ActivitySource = "gpx" | "manual";
+export type ActivitySource = "gpx" | "tcx" | "manual";
 
 export type Activity = {
   id: string;
@@ -17,10 +17,11 @@ export type Activity = {
   sport: Sport | null;
   title: string;
   startTime: string;
-  endTime: string;
-  durationSec: number;
+  endTime: string | null;
+  durationSec: number | null;
   distanceMeters: number | null;
   elevMeters: number | null;
+  altitudeAvgM: number | null;
   avgHr: number | null;
   avgPower: number | null;
   avgSpeed: number | null;
@@ -124,12 +125,24 @@ export async function loadActivities(): Promise<Activity[]> {
       }
       const now = new Date().toISOString();
       const normalizeCreatedAt = (
-        value: Activity & { createdAt?: string; notes?: string | null; comment?: string | null },
+        value: Activity & {
+          createdAt?: string;
+          notes?: string | null;
+          comment?: string | null;
+          endTime?: string | null;
+          durationSec?: number | null;
+          elevMeters?: number | null;
+          altitudeAvgM?: number | null;
+        },
       ) => {
         const createdAt = value.createdAt ?? (isValidIso(value.startTime) ? value.startTime : now);
         const notes = value.notes ?? value.comment ?? null;
+        const endTime = normalizeNullableIso(value.endTime);
+        const durationSec = normalizeDurationSec(value.durationSec);
+        const elevMeters = normalizeNullableNumber(value.elevMeters);
+        const altitudeAvgM = normalizeNullableNumber(value.altitudeAvgM);
         const { comment: _comment, ...rest } = value;
-        return { ...rest, createdAt, notes };
+        return { ...rest, createdAt, notes, endTime, durationSec, elevMeters, altitudeAvgM };
       };
       resolve(row.value.map(normalizeCreatedAt));
     };
@@ -143,6 +156,26 @@ export async function loadActivities(): Promise<Activity[]> {
 function isValidIso(value: string | null | undefined) {
   if (!value) return false;
   return Number.isFinite(Date.parse(value));
+}
+
+function normalizeNullableIso(value: string | null | undefined) {
+  if (!value) return null;
+  return isValidIso(value) ? value : null;
+}
+
+function normalizeNullableNumber(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return Number.isFinite(value) ? value : null;
+}
+
+function normalizeDurationSec(value: number | null | undefined) {
+  const normalized = normalizeNullableNumber(value);
+  if (normalized === null || normalized <= 0) {
+    return null;
+  }
+  return normalized;
 }
 
 export async function saveActivities(value: Activity[]): Promise<void> {

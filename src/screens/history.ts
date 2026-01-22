@@ -185,12 +185,12 @@ function renderActivityCard(activity: Activity, showJson: boolean) {
   const dateLabel = formatDateLabel(activity.startTime || activity.createdAt);
   const durationLabel = formatDuration(activity.durationSec);
   const distanceLabel = formatDistance(activity.distanceMeters);
-  const elevLabel = formatElev(activity.elevMeters);
+  const avgHrLabel = formatAvgHr(activity.avgHr);
   const srpeLabel = activity.sRpe === null ? "--" : String(activity.sRpe);
   const srpeValue = activity.sRpe ?? 0;
 
   const sensors =
-    activity.source === "gpx"
+    activity.source !== "manual"
       ? `
         <div class="mt-3 flex items-center justify-between">
           <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Sensors</span>
@@ -243,7 +243,7 @@ function renderActivityCard(activity: Activity, showJson: boolean) {
             Delete
           </button>
           <span class="rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-300">
-            ${activity.source === "gpx" ? "GPX" : "Manual"}
+            ${activity.source === "gpx" ? "GPX" : activity.source === "tcx" ? "TCX" : "Manual"}
           </span>
         </div>
       </div>
@@ -251,7 +251,7 @@ function renderActivityCard(activity: Activity, showJson: boolean) {
       <div class="mt-4 grid grid-cols-3 gap-3 rounded-xl border border-slate-900/80 bg-slate-950/60 px-3 py-2 text-center">
         ${renderMetric("Time", durationLabel)}
         ${renderMetric("Distance", distanceLabel)}
-        ${renderMetric("Elev", elevLabel)}
+        ${renderMetric("AVG HR", avgHrLabel)}
       </div>
 
       ${sensors}
@@ -316,8 +316,8 @@ function matchesFilter(activity: Activity, filter: SportFilter) {
   return activity.sport === filter;
 }
 
-function formatDuration(value: number) {
-  if (!Number.isFinite(value) || value <= 0) {
+function formatDuration(value: number | null) {
+  if (value === null || !Number.isFinite(value) || value <= 0) {
     return "--";
   }
   const totalSeconds = Math.round(value);
@@ -337,11 +337,11 @@ function formatDistance(value: number | null) {
   return `${Math.round(value)} m`;
 }
 
-function formatElev(value: number | null) {
+function formatAvgHr(value: number | null) {
   if (value === null || !Number.isFinite(value)) {
     return "--";
   }
-  return `${Math.round(value)} m`;
+  return `${Math.round(value)} bpm`;
 }
 
 function formatDateLabel(iso: string | null) {
