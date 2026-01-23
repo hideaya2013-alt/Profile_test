@@ -2,7 +2,7 @@
 
 この文書は **本プロジェクト固有**。CODEX.md（不変契約）に反しない範囲で更新してよい。
 
-最終更新: 2026-01-23
+最終更新: 2026-01-20
 
 ---
 
@@ -198,74 +198,33 @@ Manual の notes は コメント表示欄として常設（GPX,TCXも notes が
 ### 3.4 TriCoach（Menu / Chat 分離：確定）
 TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマホ前提で同時表示のメリットが薄く、状態が複雑化するため）。
 
-共通方針：
-- Always（基礎情報＋運用規約＋Doctrine）は **常時送信**（ユーザー選択なし）
-- Always を UI に表示しない（「Always included」等の表示も行わない）
-- 画面上のフィルタ／トグルは **送信素材の選択**であり、チャット入力欄に本文を表示しない
-
 #### 3.4.1 TriCoach Menu
 - 役割：生成されたメニュー（Plan）の閲覧・消化・削除の中心
+- メニュー表示は「週固定ではない」
+  - 残っているメニューをスライド表示（または縦リスト）
+  - 各カードに削除ボタン（MVPは confirm() で誤削除防止）
 - 「Chatを開く」導線を用意（メニュー相談・調整へ遷移）
-- 上段ステータス（共通ヘッダ）：UNSYNC / Resync / CONNECTED
-- 素材選択（左→右の並び）：DOCTRINE（Edit） / HISTORY（7d・14d） / RESTMENU（ON/OFF）
-  - DOCTRINE は編集画面を開くためのボタン（素材選択ではない）
 
 #### 3.4.2 TriCoach Chat
 - 役割：相談・調整（AIは“決定主体”ではなく相談相手）
-- 上段ステータス（共通ヘッダ）：UNSYNC / Resync / CONNECTED
-- 素材選択（左→右の並び）：DOCTRINE（Edit） / HISTORY（7d・14d） / RESTMENU（ON/OFF）
-  - HISTORY：7日/14日のどちらか一方（単一選択）
-  - RESTMENU：追加素材の ON/OFF
-- 送信ペイロードは「ユーザー入力 + Always + 選択された素材」で構成する
+- チャット入力欄には **ContextPack の本文を表示しない**
+  - 代わりに「添付チップ（短文）」として表示する（解除可）
+  - 例：フルコンテキスト / 残っているメニュー / 直近7日履歴 …など
+- 送信ペイロードは「ユーザー入力 + 選択されたContextのみ」で構成する
+  - API側は原則“会話を覚えない”前提のため、必要なら「直近チャットN件」も Context として明示的に含める
+  - Developer Mode (?dev) のときだけ、実際に送る ContextPack の全文を確認できる（読み取り専用）
 - AI返信型は 3択固定（既存方針維持）：
   - 「変更なし」
   - 「提案（plan_patch）」※ Apply で反映（自動反映しない）
   - 「回答のみ」
-
-#### 3.4.3 TriCoach 共通ヘッダ状態（固定）
-- 表示は 3つ並び：UNSYNC / Resync / CONNECTED
-- UNSYNC = ローカルDB差分（dirty）の有無のみを表す（通信可否とは無関係）
-- CONNECTED = FastAPI backend の疎通のみを表す（差分有無とは無関係）
-- Resync = 差分解消の同期アクション
-  - dirty=false：Resync disabled
-  - dirty=true：Resync enabled
-  - 同期失敗時：dirty維持、短いエラー表示（UI責務）
-
-#### 3.4.4 Doctrine（Training Intent / Doctrine）
-目的：Alwaysに含める “方針テキスト” をユーザーが編集できるようにする。
-
-- Doctrine は「4分割テキスト」をDBへ保存し、Always合成時に常に含める
-- 編集UIは TriCoach から呼び出す（メインの5画面構成には追加しない）
-  - 実装は **フルスクリーンの編集画面（内部遷移 or overlay）**として扱い、グローバルの screenOrder には含めない
-
-##### Doctrine Edit（UI仕様：固定）
-- textarea 4つ（縦積み）：
-  1) Short-term goal
-  2) Season goal
-  3) Constraints
-  4) Doctrine / Principles
-- Last updated を表示（DBの updatedAt）
-- Save / Return の2ボタン
-  - Save：dirty=true のときのみ有効。4欄すべて空は disabled
-  - Save成功：Saveボタン自体が "SAVED"（緑）に変化し 0.7s 後に "Save" に戻る
-  - Save失敗：Saveボタン自体が "FAULT"（赤）に変化し 0.7s 後に "Save" に戻る
-  - fault時も入力内容は保持（消さない）
-  - Return：dirty=falseなら戻る / dirty=trueなら確認（Discard and Return / Stay）
-
-##### Doctrine データ（IndexedDB）
-- 単一レコード（singleton）
-  - shortTermGoal: string
-  - seasonGoal: string
-  - constraints: string
-  - doctrine: string
-  - updatedAt: string(ISO)
-
+- 将来拡張：
+  - Context選択UI（「＋」ボタン、選択済みチップ表示、解除）
+  - Contextの種類追加（Profile / 直近履歴 / 残メニュー / 直近チャット など）体調メモは当日チャット入力で対応。
 
 ---
 
 ## 4. アイコン配置（本プロジェクトの運用）
 外部CDNは禁止（CODEX準拠）
-- 共通UIアイコン：`src/assets/icons/common/`
-- 種目（Swim/Bike/Run/Other等）アイコン：`src/assets/icons/focus/`（階層は増やさない）
-- SVGは `currentColor` 前提（色は Tailwind class で制御）
+種目アイコンは src/assets/icons/focus/ に格納（階層は増やさない）
+SVGは currentColor 前提（色は Tailwind class で制御）
 
