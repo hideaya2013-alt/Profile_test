@@ -17,6 +17,7 @@
 ---
 
 ## 1. Skill の利用（短縮指示のための合言葉）
+- 指示事項に記載なくても有効と判断した場合、自由にskillを使用する。
 - `Frontend_DynamicIcon_StateDriven`：
   - Syncバッジ、Connected表示、処理状態（IMPORTING/SAVED/ERROR など）
 - `Frontend_SelectablePill_WithIcon`：
@@ -24,6 +25,8 @@
   - タグ型フィルタ等（必要になったら適用）
 - `Frontend_ToggleSwitch_PeerA11y`：
   - Preferences トグル等（checkbox実体 + peer + A11y）
+- `Frontend_TextInput_Stable_NoFullRefresh`:
+  - Vanilla TS（innerHTML系レンダ）でも、テキスト入力（textarea / input）を 連続入力・改行・IME変換・ペースト含めて安定させる。
 
 ---
 
@@ -269,3 +272,23 @@ TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマ�
 - 種目（Swim/Bike/Run/Other等）アイコン：`src/assets/icons/focus/`（階層は増やさない）
 - SVGは `currentColor` 前提（色は Tailwind class で制御）
 
+## 5. Codex Work Summary 運用（固定）
+- Codexは作業完了時に必ずリポジトリ直下 `WORK_SUMMARY.md` に追記する（追記のみ、過去改変しない）。
+- 追記フォーマットは以下：
+
+## YYYY-MM-DD (Session: TriCoach)
+### Done
+- ...
+
+### Touched files
+- ...
+
+### Key diffs (high level)
+- ...
+
+### How to verify
+1) ...
+2) ...
+
+### Next
+- ...

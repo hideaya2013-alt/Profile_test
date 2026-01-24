@@ -1,4 +1,9 @@
-export type ScreenId = "profile" | "new-activity" | "history";
+export type ScreenId =
+  | "profile"
+  | "new-activity"
+  | "history"
+  | "tricoach-menu"
+  | "tricoach-chat";
 
 export type Cleanup = () => void;
 

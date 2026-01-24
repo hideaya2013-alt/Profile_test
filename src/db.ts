@@ -34,11 +34,20 @@ export type Activity = {
   updatedAt: string;
 };
 
+export type DoctrineData = {
+  shortTermGoal: string;
+  seasonGoal: string;
+  constraints: string;
+  doctrine: string;
+  updatedAt: string;
+};
+
 const DB_NAME = "tria_profile_test";
 const DB_VERSION = 1;
 const STORE = "kv";
 const KEY = "profile";
 const ACTIVITIES_KEY = "activities";
+const DOCTRINE_KEY = "doctrine";
 const DEFAULT_TRAINING_FOCUS = ["continuity"];
 const DEFAULT_TRACK_SESSION_RPE = true;
 
@@ -184,6 +193,56 @@ export async function saveActivities(value: Activity[]): Promise<void> {
     const tx = db.transaction(STORE, "readwrite");
     const store = tx.objectStore(STORE);
     store.put({ key: ACTIVITIES_KEY, value });
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function loadDoctrine(): Promise<DoctrineData> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const store = tx.objectStore(STORE);
+    const req = store.get(DOCTRINE_KEY);
+
+    req.onsuccess = () => {
+      const row = req.result as { key: string; value: DoctrineData } | undefined;
+      const now = new Date().toISOString();
+      if (!row?.value) {
+        resolve({
+          shortTermGoal: "",
+          seasonGoal: "",
+          constraints: "",
+          doctrine: "",
+          updatedAt: now,
+        });
+        return;
+      }
+      resolve({
+        shortTermGoal: row.value.shortTermGoal ?? "",
+        seasonGoal: row.value.seasonGoal ?? "",
+        constraints: row.value.constraints ?? "",
+        doctrine: row.value.doctrine ?? "",
+        updatedAt: row.value.updatedAt ?? now,
+      });
+    };
+    req.onerror = () => reject(req.error);
+
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function saveDoctrine(value: DoctrineData): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    store.put({ key: DOCTRINE_KEY, value });
 
     tx.oncomplete = () => {
       db.close();
