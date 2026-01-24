@@ -1,4 +1,4 @@
-import { loadDoctrine, saveDoctrine, type DoctrineData } from "../db";
+﻿import { loadDoctrine, saveDoctrine, type DoctrineData } from "../db";
 import alertSvg from "../assets/icons/common/alert.svg?raw";
 import checkSvg from "../assets/icons/common/check.svg?raw";
 import editSvg from "../assets/icons/common/edit.svg?raw";
@@ -6,6 +6,7 @@ import syncSvg from "../assets/icons/common/sync.svg?raw";
 
 type HistoryRange = "7d" | "14d";
 type SaveFlash = "saved" | "fault" | null;
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 const SYNCED_CLASSES =
   "text-sky-200 border-sky-400/40 bg-sky-500/10";
@@ -19,17 +20,26 @@ const RESYNC_DISABLED_CLASSES =
   "opacity-60 cursor-not-allowed border-slate-800 text-slate-500";
 const RESYNC_ENABLED_CLASSES =
   "border-slate-700 text-slate-200 hover:border-slate-500";
+const HISTORY_BASE_CLASSES =
+  "flex-1 whitespace-nowrap text-center rounded-full px-3 py-1 text-xs font-semibold transition";
 const HISTORY_ACTIVE_CLASSES =
   "border border-sky-400/60 bg-sky-500/20 text-sky-200";
 const HISTORY_IDLE_CLASSES =
   "border border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700";
-const SAVE_IDLE_CLASSES = "text-slate-100 border-slate-700";
+const SAVE_IDLE_CLASSES =
+  "text-slate-100 border-slate-500/70";
 const SAVE_SAVED_CLASSES =
-  "text-emerald-300 border-emerald-400/50 ring-2 ring-emerald-400/50";
+  "text-emerald-400 border-emerald-400/50 " +
+  "ring-2 ring-emerald-400/60 " +
+  "shadow-[0_0_0_1px_rgba(16,185,129,0.25)] " +
+  "cursor-not-allowed";
 const SAVE_FAULT_CLASSES =
-  "text-rose-300 border-rose-400/50 ring-2 ring-rose-400/50";
+  "text-rose-400 border-rose-400/50 " +
+  "ring-2 ring-rose-400/60 " +
+  "shadow-[0_0_0_1px_rgba(244,63,94,0.25)] " +
+  "cursor-not-allowed";
 const SAVE_DISABLED_CLASSES =
-  "opacity-50 cursor-not-allowed border-slate-800 text-slate-500";
+  "text-slate-400 border-slate-600/60 cursor-not-allowed opacity-70";
 
 export function mountTriCoachChat(root: HTMLElement) {
   let healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -63,8 +73,10 @@ export function mountTriCoachChat(root: HTMLElement) {
     connectedLabel: null as HTMLSpanElement | null,
     historyButtons: [] as HTMLButtonElement[],
     restMenuLabel: null as HTMLSpanElement | null,
-    restMenuKnob: null as HTMLSpanElement | null,
+    restMenuInput: null as HTMLInputElement | null,
     confirmUpdate: null as HTMLButtonElement | null,
+    chatInput: null as HTMLTextAreaElement | null,
+    sendButton: null as HTMLButtonElement | null,
     overlay: null as HTMLDivElement | null,
     overlayUpdatedAt: null as HTMLSpanElement | null,
     saveButton: null as HTMLButtonElement | null,
@@ -117,8 +129,13 @@ export function mountTriCoachChat(root: HTMLElement) {
     healthAbort?.abort();
     healthAbort = new AbortController();
     try {
-      const res = await fetch("/health", { signal: healthAbort.signal });
-      const next = res.ok;
+      const url = `${API_BASE}/health`;
+      const res = await fetch(url, { cache: "no-store", signal: healthAbort.signal });
+      let next = false;
+      if (res.ok) {
+        const data = (await res.json()) as { status?: string } | null;
+        next = data?.status === "ok";
+      }
       if (next !== state.connected) {
         state.connected = next;
         updateConnectedUI();
@@ -276,32 +293,41 @@ export function mountTriCoachChat(root: HTMLElement) {
                 ${renderIcon(editSvg, "h-4 w-4 text-slate-200")}
                 Edit
               </button>
-              <div class="flex items-center justify-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/40 px-3 py-3">
+              <div class="flex flex-nowrap items-center justify-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/40 px-3 py-3">
                 <button
                   type="button"
                   data-range="7d"
-                  class="rounded-full px-3 py-1 text-xs font-semibold transition ${HISTORY_ACTIVE_CLASSES}"
+                  class="${HISTORY_BASE_CLASSES} ${HISTORY_ACTIVE_CLASSES}"
                 >
                   7 Day
                 </button>
                 <button
                   type="button"
                   data-range="14d"
-                  class="rounded-full px-3 py-1 text-xs font-semibold transition ${HISTORY_IDLE_CLASSES}"
+                  class="${HISTORY_BASE_CLASSES} ${HISTORY_IDLE_CLASSES}"
                 >
                   14 Day
                 </button>
               </div>
-              <button
-                type="button"
-                data-restmenu="toggle"
+              <label
                 class="flex items-center justify-end gap-2 rounded-2xl border border-slate-800 bg-slate-950/40 px-3 py-3 text-sm font-semibold text-slate-200"
               >
                 <span data-restmenu-label class="text-xs font-semibold uppercase tracking-wide text-slate-400">OFF</span>
-                <span class="relative inline-flex h-5 w-9 items-center rounded-full border border-slate-700 bg-slate-900/60">
-                  <span data-restmenu-knob class="h-4 w-4 rounded-full bg-slate-400 transition translate-x-[2px]"></span>
+                <span class="relative">
+                  <input
+                    data-restmenu-input
+                    type="checkbox"
+                    role="switch"
+                    class="peer sr-only"
+                  />
+                  <div
+                    class="h-6 w-11 rounded-full bg-slate-800 transition peer-checked:bg-sky-500/80 peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-slate-950"
+                  ></div>
+                  <div
+                    class="pointer-events-none absolute left-1 top-1 h-4 w-4 rounded-full bg-slate-200 transition peer-checked:translate-x-5 peer-checked:bg-white"
+                  ></div>
                 </span>
-              </button>
+              </label>
             </div>
           </section>
 
@@ -335,13 +361,15 @@ export function mountTriCoachChat(root: HTMLElement) {
 
           <div class="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-950/95 px-5 py-4">
             <div class="mx-auto flex max-w-[520px] items-center gap-3">
-              <input
-                type="text"
+              <textarea
+                data-chat-input
+                rows="2"
                 placeholder="Ask Coach about your plan..."
-                class="flex-1 rounded-full border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-400/60"
-              />
+                class="flex-1 resize-none rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-400/60"
+              ></textarea>
               <button
                 type="button"
+                data-send
                 class="h-11 w-11 rounded-full border border-slate-800 bg-sky-500/30 text-sky-100"
               >
                 >
@@ -376,7 +404,7 @@ export function mountTriCoachChat(root: HTMLElement) {
               data-doctrine-save="true"
               class="inline-flex items-center justify-center gap-2 rounded-full border px-4 py-3 text-sm font-semibold ${SAVE_IDLE_CLASSES}"
             >
-              Save
+              Save Configuration
             </button>
             <button
               type="button"
@@ -398,8 +426,10 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.connectedLabel = root.querySelector("[data-connected-label]");
     ui.historyButtons = Array.from(root.querySelectorAll("[data-range]"));
     ui.restMenuLabel = root.querySelector("[data-restmenu-label]");
-    ui.restMenuKnob = root.querySelector("[data-restmenu-knob]");
+    ui.restMenuInput = root.querySelector("[data-restmenu-input]");
     ui.confirmUpdate = root.querySelector("[data-confirm-update]");
+    ui.chatInput = root.querySelector("[data-chat-input]");
+    ui.sendButton = root.querySelector("[data-send]");
     ui.overlay = root.querySelector("[data-overlay]");
     ui.overlayUpdatedAt = root.querySelector("[data-doctrine-updated]");
     ui.saveButton = root.querySelector("[data-doctrine-save]");
@@ -439,11 +469,10 @@ export function mountTriCoachChat(root: HTMLElement) {
       );
     });
 
-    const restButton = root.querySelector<HTMLButtonElement>("[data-restmenu]");
-    restButton?.addEventListener(
-      "click",
+    ui.restMenuInput?.addEventListener(
+      "change",
       () => {
-        state.restMenuOn = !state.restMenuOn;
+        state.restMenuOn = ui.restMenuInput?.checked ?? false;
         updateRestMenuUI();
       },
       { signal },
@@ -480,6 +509,28 @@ export function mountTriCoachChat(root: HTMLElement) {
       "click",
       () => {
         handleDoctrineReturn();
+      },
+      { signal },
+    );
+
+    ui.sendButton?.addEventListener(
+      "click",
+      () => {
+        handleSend();
+      },
+      { signal },
+    );
+
+    ui.chatInput?.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          handleSend();
+        }
       },
       { signal },
     );
@@ -527,20 +578,18 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.historyButtons.forEach((button) => {
       const value = button.dataset.range as HistoryRange | undefined;
       const active = value === state.historyRange;
-      button.className = `rounded-full px-3 py-1 text-xs font-semibold transition ${
+      button.className = `${HISTORY_BASE_CLASSES} ${
         active ? HISTORY_ACTIVE_CLASSES : HISTORY_IDLE_CLASSES
       }`;
     });
   }
 
   function updateRestMenuUI() {
-    if (!ui.restMenuLabel || !ui.restMenuKnob) {
+    if (!ui.restMenuLabel || !ui.restMenuInput) {
       return;
     }
     ui.restMenuLabel.textContent = state.restMenuOn ? "ON" : "OFF";
-    ui.restMenuKnob.className = `h-4 w-4 rounded-full transition ${
-      state.restMenuOn ? "translate-x-[18px] bg-emerald-300" : "translate-x-[2px] bg-slate-400"
-    }`;
+    ui.restMenuInput.checked = state.restMenuOn;
   }
 
   function updateConfirmUpdateUI() {
@@ -577,19 +626,40 @@ export function mountTriCoachChat(root: HTMLElement) {
     if (!ui.saveButton) {
       return;
     }
-    const saveDisabled = !state.dirty || allFieldsEmpty();
+    const flashing = state.saveFlash !== null;
+    const saveDisabled = flashing || !state.dirty || allFieldsEmpty();
     const label =
-      state.saveFlash === "saved" ? "SAVED" : state.saveFlash === "fault" ? "FAULT" : "Save";
+      state.saveFlash === "saved"
+        ? "✓ Saved"
+        : state.saveFlash === "fault"
+          ? "✕ Fault"
+          : "Save Configuration";
     const tone =
       state.saveFlash === "saved"
         ? SAVE_SAVED_CLASSES
         : state.saveFlash === "fault"
           ? SAVE_FAULT_CLASSES
           : SAVE_IDLE_CLASSES;
-    const disabledClass = saveDisabled ? SAVE_DISABLED_CLASSES : "hover:border-slate-500";
+    const enabledClass =
+      "hover:border-slate-300/70 hover:text-white " +
+      "active:translate-y-[1px] " +
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60";
+    const disabledClass = saveDisabled ? SAVE_DISABLED_CLASSES : enabledClass;
     ui.saveButton.textContent = label;
     ui.saveButton.className = `inline-flex items-center justify-center gap-2 rounded-full border px-4 py-3 text-sm font-semibold ${tone} ${disabledClass}`;
     ui.saveButton.disabled = saveDisabled;
+  }
+
+  function handleSend() {
+    if (!ui.chatInput) {
+      return;
+    }
+    const message = ui.chatInput.value.trim();
+    if (!message) {
+      return;
+    }
+    ui.chatInput.value = "";
+    ui.chatInput.focus();
   }
 }
 

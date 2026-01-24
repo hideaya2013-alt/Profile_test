@@ -49,3 +49,66 @@
 
 ### Next
 - ChatのConfirm Update表示の実データ連携
+
+## 2026-01-24 (Session: TriCoach Chat Env/Input)
+### Done
+- Chat入力をtextarea化し、Ctrl/Cmd+Enter送信とボタン送信に対応
+- CONNECTED判定をVITE_API_BASE/healthのJSON statusで厳密化
+- 送信時のみ入力をクリアし、入力中のDOM差し替えを回避
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- API_BASEを環境変数から参照し、/healthの判定をstatus==="ok"に限定
+- 入力欄をtextareaに変更し、送信は明示操作のみ
+
+### How to verify
+1) npm run dev（.env.local変更がある場合は再起動）
+2) backend停止でOFFLINE維持、起動後/healthでCONNECTEDになること
+3) Enter改行、Ctrl/Cmd+Enterで送信、送信後に入力がクリアされること
+
+### Next
+- 送信ログ反映や履歴接続の実装
+
+## 2026-01-24 (Session: TriCoach Chat UI)
+### Done
+- History 7/14ボタンを同一行・同幅チップに統一
+- RestMenuトグルをProfileと同等のpeerスイッチに差し替え
+- Doctrine Saveボタンを「✓ Saved / ✕ Fault」表示へ変更
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- 履歴レンジUIのクラス構成を見直し1行固定化
+- RestMenuをcheckbox+peerの実体スイッチで統一
+- Saveボタンの文言を状態に応じて切替
+
+### How to verify
+1) TriCoach Chatで7 Day / 14 Dayが1行で並ぶことを確認
+2) RestMenuトグルがProfileと同じ色/挙動になることを確認
+3) Doctrine EditでSave成功/失敗時にボタン文言が0.7s変化することを確認
+
+### Next
+- Chat UIの送信履歴表示の実装
+## 2026-01-24 (Session: TriCoach Doctrine Save Flash)
+### Done
+- Doctrine Saveボタンの文言を「Save Configuration」に統一
+- 成功/失敗フラッシュ時に✓/✕ラベルと色変化を適用し0.7sで復帰
+- フラッシュ中はSaveボタンを無効化
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- SAVE_* クラス値をNew Activityのトーンに寄せて調整
+- updateDoctrineSaveUIでフラッシュ/disabled判定を強化
+
+### How to verify
+1) Doctrine Editで保存成功時に「✓ Saved」緑表示になる
+2) 保存失敗時に「✕ Fault」赤表示になる
+3) 0.7s後に「Save Configuration」へ戻る
+
+### Next
+- Save中ローディング表示の検討
