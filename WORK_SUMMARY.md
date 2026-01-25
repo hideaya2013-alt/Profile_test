@@ -112,3 +112,42 @@
 
 ### Next
 - Save中ローディング表示の検討
+
+## 2026-01-24 (Session: TriCoach Dev Panel)
+### Done
+- /?dev 時のみ表示されるデバッグパネルを追加
+- API_BASE/connected/health結果/コンテキスト状態/pack previewを表示
+- Copy/Rebuild 操作とコピー結果の簡易表示を追加
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- devパネルをrenderOnceに常設し、updateDevPanelUIで差分更新
+- /health の結果を lastHealthAt/lastHealthResult として保持
+
+### How to verify
+1) /?dev でパネルが表示され、通常URLでは非表示
+2) API_BASE/connected/health結果/historyRange/restMenuOnが更新される
+3) Copy Pack / Rebuild Pack が動作し、Consoleエラーが無い
+
+### Next
+- buildContextPack に本体データを追加
+
+## 2026-01-24 (Session: TriCoach Dev Payload)
+### Done
+- /?dev のPACK PREVIEWを送信payloadプレビューに変更
+- FULL PAYLOADの全文表示とsectionsフラグ表示を追加
+- Copy Packをpayload全文コピーに変更し失敗時ログを追加
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- buildDevPayloadでALWAYS/HISTORY/RESTMENUのpayload文字列を組み立て
+- devパネルのchars/preview/full表示をpayloadベースへ切替
+
+### How to verify
+1) /?dev でpayload previewとFULL PAYLOADが表示される
+2) Copy Packで全文がコピーされる
+3) Rebuild Packでpreview/charsが更新される

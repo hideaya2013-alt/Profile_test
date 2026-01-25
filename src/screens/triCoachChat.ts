@@ -6,7 +6,8 @@ import syncSvg from "../assets/icons/common/sync.svg?raw";
 
 type HistoryRange = "7d" | "14d";
 type SaveFlash = "saved" | "fault" | null;
-const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+const API_BASE_RAW = import.meta.env.VITE_API_BASE ?? "";
+const API_BASE = API_BASE_RAW.replace(/\/$/, "");
 
 const SYNCED_CLASSES =
   "text-sky-200 border-sky-400/40 bg-sky-500/10";
@@ -45,7 +46,9 @@ export function mountTriCoachChat(root: HTMLElement) {
   let healthTimer: ReturnType<typeof setInterval> | null = null;
   let healthAbort: AbortController | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let copyTimer: ReturnType<typeof setTimeout> | null = null;
   const controller = new AbortController();
+  const isDev = new URLSearchParams(location.search).has("dev");
 
   const state = {
     connected: false,
@@ -53,6 +56,9 @@ export function mountTriCoachChat(root: HTMLElement) {
     historyRange: "7d" as HistoryRange,
     restMenuOn: false,
     hasPlanPatch: false,
+    devPanelOpen: false,
+    lastHealthAt: "-" as string,
+    lastHealthResult: "-" as string,
     doctrine: null as DoctrineData | null,
     draft: {
       shortTermGoal: "",
@@ -77,6 +83,25 @@ export function mountTriCoachChat(root: HTMLElement) {
     confirmUpdate: null as HTMLButtonElement | null,
     chatInput: null as HTMLTextAreaElement | null,
     sendButton: null as HTMLButtonElement | null,
+    devPanel: null as HTMLDivElement | null,
+    devToggle: null as HTMLButtonElement | null,
+    devContent: null as HTMLDivElement | null,
+    devApiBase: null as HTMLSpanElement | null,
+    devConnected: null as HTMLSpanElement | null,
+    devHealthAt: null as HTMLSpanElement | null,
+    devHealthResult: null as HTMLSpanElement | null,
+    devHistoryRange: null as HTMLSpanElement | null,
+    devRestMenu: null as HTMLSpanElement | null,
+    devPackChars: null as HTMLSpanElement | null,
+    devPackPreview: null as HTMLPreElement | null,
+    devPackJson: null as HTMLPreElement | null,
+    devPackFull: null as HTMLPreElement | null,
+    devSectionAlways: null as HTMLSpanElement | null,
+    devSectionHistory: null as HTMLSpanElement | null,
+    devSectionRest: null as HTMLSpanElement | null,
+    devCopyStatus: null as HTMLSpanElement | null,
+    devCopyButton: null as HTMLButtonElement | null,
+    devRebuildButton: null as HTMLButtonElement | null,
     overlay: null as HTMLDivElement | null,
     overlayUpdatedAt: null as HTMLSpanElement | null,
     saveButton: null as HTMLButtonElement | null,
@@ -97,6 +122,9 @@ export function mountTriCoachChat(root: HTMLElement) {
     }
     if (saveTimer) {
       clearTimeout(saveTimer);
+    }
+    if (copyTimer) {
+      clearTimeout(copyTimer);
     }
     healthAbort?.abort();
   };
@@ -128,23 +156,38 @@ export function mountTriCoachChat(root: HTMLElement) {
   async function checkHealth() {
     healthAbort?.abort();
     healthAbort = new AbortController();
+    const stamp = new Date().toISOString();
     try {
       const url = `${API_BASE}/health`;
       const res = await fetch(url, { cache: "no-store", signal: healthAbort.signal });
       let next = false;
+      let result = res.ok ? "not-ok" : "not-ok";
       if (res.ok) {
-        const data = (await res.json()) as { status?: string } | null;
-        next = data?.status === "ok";
+        try {
+          const data = (await res.json()) as { status?: string } | null;
+          next = data?.status === "ok";
+          result = next ? "ok" : "not-ok";
+        } catch {
+          result = "bad-json";
+        }
+      } else {
+        result = "not-ok";
       }
+      state.lastHealthAt = stamp;
+      state.lastHealthResult = result;
       if (next !== state.connected) {
         state.connected = next;
         updateConnectedUI();
       }
+      updateDevPanelUI();
     } catch {
       if (state.connected) {
         state.connected = false;
         updateConnectedUI();
       }
+      state.lastHealthAt = stamp;
+      state.lastHealthResult = "fetch-error";
+      updateDevPanelUI();
     }
   }
 
@@ -379,6 +422,76 @@ export function mountTriCoachChat(root: HTMLElement) {
         </div>
       </div>
 
+      <div
+        data-dev-panel
+        ${isDev ? "" : "hidden"}
+        class="fixed bottom-20 left-0 right-0 z-40 px-4"
+      >
+        <div class="mx-auto max-w-[520px] rounded-2xl border border-slate-800 bg-slate-950/95 shadow-lg shadow-black/40">
+          <button
+            type="button"
+            data-dev-toggle
+            class="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400"
+          >
+            Dev Panel
+            <span data-dev-toggle-icon class="text-slate-500">▾</span>
+          </button>
+          <div data-dev-content class="px-4 pb-4 text-xs text-slate-300">
+            <div class="space-y-2 border-t border-slate-800 pt-3">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Env / Network</div>
+              <div>VITE_API_BASE: <span data-dev-api-base class="text-slate-200"></span></div>
+              <div>connected: <span data-dev-connected class="text-slate-200"></span></div>
+              <div>lastHealthAt: <span data-dev-health-at class="text-slate-200"></span></div>
+              <div>lastHealthResult: <span data-dev-health-result class="text-slate-200"></span></div>
+            </div>
+            <div class="mt-3 space-y-1">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Context selection</div>
+              <div>Always: ON</div>
+              <div>historyRange: <span data-dev-history-range class="text-slate-200"></span></div>
+              <div>restMenuOn: <span data-dev-restmenu class="text-slate-200"></span></div>
+            </div>
+            <div class="mt-3 space-y-2">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payload preview</div>
+              <div>
+                chars: <span data-dev-pack-chars class="text-slate-200"></span>
+              </div>
+              <div class="text-[11px] text-slate-400">
+                sections:
+                always=<span data-dev-sec-always class="text-slate-200"></span>,
+                history=<span data-dev-sec-history class="text-slate-200"></span>,
+                restmenu=<span data-dev-sec-rest class="text-slate-200"></span>
+              </div>
+              <pre data-dev-pack-preview class="max-h-32 overflow-auto rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-200"></pre>
+              <details class="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                <summary class="cursor-pointer text-[11px] font-semibold text-slate-400">FULL PAYLOAD</summary>
+                <pre data-dev-pack-full class="mt-2 whitespace-pre-wrap text-[11px] text-slate-200"></pre>
+              </details>
+              <details class="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                <summary class="cursor-pointer text-[11px] font-semibold text-slate-400">JSON</summary>
+                <pre data-dev-pack-json class="mt-2 whitespace-pre-wrap text-[11px] text-slate-200"></pre>
+              </details>
+            </div>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                data-dev-copy
+                class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-200 hover:border-slate-500"
+              >
+                Copy Pack
+              </button>
+              <button
+                type="button"
+                data-dev-rebuild
+                class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-200 hover:border-slate-500"
+              >
+                Rebuild Pack
+              </button>
+              <span data-dev-copy-status class="text-[11px] text-slate-400"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div data-overlay hidden class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/95">
         <div class="mx-auto max-w-[520px] px-5 py-6">
           <header>
@@ -430,6 +543,25 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.confirmUpdate = root.querySelector("[data-confirm-update]");
     ui.chatInput = root.querySelector("[data-chat-input]");
     ui.sendButton = root.querySelector("[data-send]");
+    ui.devPanel = root.querySelector("[data-dev-panel]");
+    ui.devToggle = root.querySelector("[data-dev-toggle]");
+    ui.devContent = root.querySelector("[data-dev-content]");
+    ui.devApiBase = root.querySelector("[data-dev-api-base]");
+    ui.devConnected = root.querySelector("[data-dev-connected]");
+    ui.devHealthAt = root.querySelector("[data-dev-health-at]");
+    ui.devHealthResult = root.querySelector("[data-dev-health-result]");
+    ui.devHistoryRange = root.querySelector("[data-dev-history-range]");
+    ui.devRestMenu = root.querySelector("[data-dev-restmenu]");
+    ui.devPackChars = root.querySelector("[data-dev-pack-chars]");
+    ui.devPackPreview = root.querySelector("[data-dev-pack-preview]");
+    ui.devPackJson = root.querySelector("[data-dev-pack-json]");
+    ui.devPackFull = root.querySelector("[data-dev-pack-full]");
+    ui.devSectionAlways = root.querySelector("[data-dev-sec-always]");
+    ui.devSectionHistory = root.querySelector("[data-dev-sec-history]");
+    ui.devSectionRest = root.querySelector("[data-dev-sec-rest]");
+    ui.devCopyStatus = root.querySelector("[data-dev-copy-status]");
+    ui.devCopyButton = root.querySelector("[data-dev-copy]");
+    ui.devRebuildButton = root.querySelector("[data-dev-rebuild]");
     ui.overlay = root.querySelector("[data-overlay]");
     ui.overlayUpdatedAt = root.querySelector("[data-doctrine-updated]");
     ui.saveButton = root.querySelector("[data-doctrine-save]");
@@ -521,6 +653,31 @@ export function mountTriCoachChat(root: HTMLElement) {
       { signal },
     );
 
+    ui.devToggle?.addEventListener(
+      "click",
+      () => {
+        state.devPanelOpen = !state.devPanelOpen;
+        updateDevPanelUI();
+      },
+      { signal },
+    );
+
+    ui.devCopyButton?.addEventListener(
+      "click",
+      () => {
+        void handleCopyPack();
+      },
+      { signal },
+    );
+
+    ui.devRebuildButton?.addEventListener(
+      "click",
+      () => {
+        updateDevPanelUI(true);
+      },
+      { signal },
+    );
+
     ui.chatInput?.addEventListener(
       "keydown",
       (event) => {
@@ -545,6 +702,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     updateOverlayVisibility();
     updateOverlayUpdatedAt();
     updateDoctrineSaveUI();
+    updateDevPanelUI();
   }
 
   function updateSyncUI() {
@@ -582,6 +740,7 @@ export function mountTriCoachChat(root: HTMLElement) {
         active ? HISTORY_ACTIVE_CLASSES : HISTORY_IDLE_CLASSES
       }`;
     });
+    updateDevPanelUI();
   }
 
   function updateRestMenuUI() {
@@ -590,6 +749,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     }
     ui.restMenuLabel.textContent = state.restMenuOn ? "ON" : "OFF";
     ui.restMenuInput.checked = state.restMenuOn;
+    updateDevPanelUI();
   }
 
   function updateConfirmUpdateUI() {
@@ -648,6 +808,143 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.saveButton.textContent = label;
     ui.saveButton.className = `inline-flex items-center justify-center gap-2 rounded-full border px-4 py-3 text-sm font-semibold ${tone} ${disabledClass}`;
     ui.saveButton.disabled = saveDisabled;
+  }
+
+  function buildContextPack() {
+    return {
+      always: true,
+      historyRange: state.historyRange,
+      restMenuOn: state.restMenuOn,
+    };
+  }
+
+  function buildDevPayload() {
+    const doctrine = state.doctrine;
+    const alwaysLines: string[] = [];
+    if (doctrine) {
+      const items: Array<[string, string]> = [
+        ["Short-term", doctrine.shortTermGoal],
+        ["Season", doctrine.seasonGoal],
+        ["Constraints", doctrine.constraints],
+        ["Doctrine", doctrine.doctrine],
+      ];
+      items.forEach(([label, value]) => {
+        const trimmed = value.trim();
+        if (trimmed) {
+          alwaysLines.push(`${label}: ${trimmed}`);
+        }
+      });
+    }
+    if (alwaysLines.length === 0) {
+      alwaysLines.push("(no data)");
+    }
+
+    const lines = [
+      "[ALWAYS]",
+      ...alwaysLines,
+      "",
+      `[HISTORY: ${state.historyRange}]`,
+      "(no data)",
+      "",
+      "[RESTMENU]",
+      state.restMenuOn ? "(on)" : "(off)",
+    ];
+
+    const text = lines.join("\n");
+    return {
+      text,
+      meta: {
+        chars: text.length,
+        sections: {
+          always: true,
+          history: true,
+          restmenu: state.restMenuOn,
+        },
+      },
+    };
+  }
+
+  function updateDevPanelUI(forceRebuild = false) {
+    if (!isDev || !ui.devPanel) {
+      return;
+    }
+    if (!ui.devContent || !ui.devApiBase || !ui.devConnected || !ui.devHealthAt || !ui.devHealthResult) {
+      return;
+    }
+    ui.devPanel.hidden = false;
+    const expanded = state.devPanelOpen;
+    ui.devContent.classList.toggle("hidden", !expanded);
+    const toggleIcon = ui.devToggle?.querySelector("[data-dev-toggle-icon]");
+    if (toggleIcon) {
+      toggleIcon.textContent = expanded ? "▴" : "▾";
+    }
+    ui.devApiBase.textContent = API_BASE_RAW || "-";
+    ui.devConnected.textContent = String(state.connected);
+    ui.devHealthAt.textContent = state.lastHealthAt;
+    ui.devHealthResult.textContent = state.lastHealthResult;
+    if (ui.devHistoryRange) {
+      ui.devHistoryRange.textContent = state.historyRange;
+    }
+    if (ui.devRestMenu) {
+      ui.devRestMenu.textContent = String(state.restMenuOn);
+    }
+
+    if (!ui.devPackPreview || !ui.devPackJson || !ui.devPackChars) {
+      return;
+    }
+    const pack = buildContextPack();
+    const packString = JSON.stringify(pack);
+    const payload = buildDevPayload();
+    const previewLimit = 1200;
+    const preview =
+      payload.text.length > previewLimit
+        ? `${payload.text.slice(0, previewLimit)}…(trimmed)`
+        : payload.text;
+    ui.devPackPreview.textContent = preview;
+    ui.devPackJson.textContent = JSON.stringify(pack, null, 2);
+    ui.devPackChars.textContent = String(payload.meta.chars);
+    if (ui.devPackFull) {
+      ui.devPackFull.textContent = payload.text;
+    }
+    if (ui.devSectionAlways) {
+      ui.devSectionAlways.textContent = String(payload.meta.sections.always);
+    }
+    if (ui.devSectionHistory) {
+      ui.devSectionHistory.textContent = String(payload.meta.sections.history);
+    }
+    if (ui.devSectionRest) {
+      ui.devSectionRest.textContent = String(payload.meta.sections.restmenu);
+    }
+    if (forceRebuild && ui.devCopyStatus) {
+      ui.devCopyStatus.textContent = "rebuilt";
+      clearCopyStatusLater();
+    }
+  }
+
+  async function handleCopyPack() {
+    if (!ui.devCopyStatus) {
+      return;
+    }
+    try {
+      const payload = buildDevPayload();
+      await navigator.clipboard.writeText(payload.text);
+      ui.devCopyStatus.textContent = "copied";
+    } catch (error) {
+      console.error("dev panel copy failed", error);
+      ui.devCopyStatus.textContent = "copy-fault";
+    }
+    clearCopyStatusLater();
+  }
+
+  function clearCopyStatusLater() {
+    if (copyTimer) {
+      clearTimeout(copyTimer);
+    }
+    copyTimer = setTimeout(() => {
+      if (ui.devCopyStatus) {
+        ui.devCopyStatus.textContent = "";
+      }
+    }, 1200);
   }
 
   function handleSend() {

@@ -21,6 +21,11 @@
   - キーボード操作/アクセシビリティを壊さない（Tab/Space/Enter）
   - UIは Tailwind の peer で状態反映（peer-checked / peer-disabled）
 
+- Frontend_TextInput_Stable_NoFullRefresh
+ - Vanilla TS（innerHTML系レンダ）でも、テキスト入力（textarea / input）を 連続入力・改行・IME変換・ペースト含めて安定させる。
+ - 入力イベントで画面全体をrefresh（DOM差し替え）しない設計に統一するためのSkill。
+ - Path: .codex/skills/Frontend_TextInput_Stable_NoFullRefresh/skill.md
+
 ## Conventions
 
 - 1 Skill = 1 folder
