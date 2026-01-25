@@ -224,9 +224,11 @@ export type ContextPackResult = {
 ```
 [ALWAYS]
 （Profile＋短い運用規約。下の「ALWAYSに含める最小セット」を満たす）
-
+ (Profile + Rules + Doctrine)
+ 
 [DOCTRINE]
 （短期/今季/制約/方針 + updatedAt）
+ (included in ALWAYS)
 
 [HISTORY: 7d|14d]
 （数値中心サマリ。無ければ "(no data)"）

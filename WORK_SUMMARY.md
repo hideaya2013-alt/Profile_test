@@ -151,3 +151,39 @@
 1) /?dev でpayload previewとFULL PAYLOADが表示される
 2) Copy Packで全文がコピーされる
 3) Rebuild Packでpreview/charsが更新される
+
+## 2026-01-25 (Session: Context Pack Service)
+### Done
+- DBから素材を集めてpayload textを組み立てるcontextPackServiceを新設
+- ALWAYSにDoctrineを連結し、[DOCTRINE]はincluded表示に変更
+
+### Touched files
+- src/services/contextPackService.ts
+
+### Key diffs (high level)
+- buildContextPackで固定順序のpayloadを生成しトリム/メタ情報を付与
+- ALWAYSにDoctrineを含め、DOCTRINEセクションはプレースホルダに変更
+
+### How to verify
+1) buildContextPackを呼び出してtext/meta/trimmedが返ること
+2) ALWAYS内にDoctrine本文が含まれること
+
+## 2026-01-25 (Session: Context Pack Service Hook)
+### Done
+- contextPackServiceをヒット日方式のHistory抽出＋null安全化で更新
+- TriCoach Chatの/?devパネルをserviceのpayloadに接続
+- payload preview/full/copyをservice結果で表示
+
+### Touched files
+- src/services/contextPackService.ts
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- ALWAYSにProfile+Rules+Doctrineを連結し、DOCTRINEはincluded表示
+- Historyは「データがある日を7/14ヒット」方式でJSON列挙
+- devパネルはbuildContextPackの結果を表示/コピー
+
+### How to verify
+1) /?dev でpayload preview/fullがDB内容を反映する
+2) Historyがヒット日方式でJSON列挙される
+3) Copy PackでFULL PAYLOADがコピーされる

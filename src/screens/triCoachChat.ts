@@ -1,5 +1,10 @@
 ﻿import { loadDoctrine, saveDoctrine, type DoctrineData } from "../db";
 import alertSvg from "../assets/icons/common/alert.svg?raw";
+import {
+  buildContextPack,
+  type ContextPackOptions,
+  type ContextPackResult,
+} from "../services/contextPackService";
 import checkSvg from "../assets/icons/common/check.svg?raw";
 import editSvg from "../assets/icons/common/edit.svg?raw";
 import syncSvg from "../assets/icons/common/sync.svg?raw";
@@ -49,6 +54,10 @@ export function mountTriCoachChat(root: HTMLElement) {
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
   const controller = new AbortController();
   const isDev = new URLSearchParams(location.search).has("dev");
+  let devPayload: ContextPackResult | null = null;
+  let devPayloadKey = "";
+  let devPayloadLoading = false;
+  let devPayloadError: string | null = null;
 
   const state = {
     connected: false,
@@ -97,8 +106,10 @@ export function mountTriCoachChat(root: HTMLElement) {
     devPackJson: null as HTMLPreElement | null,
     devPackFull: null as HTMLPreElement | null,
     devSectionAlways: null as HTMLSpanElement | null,
+    devSectionDoctrine: null as HTMLSpanElement | null,
     devSectionHistory: null as HTMLSpanElement | null,
     devSectionRest: null as HTMLSpanElement | null,
+    devSectionRecent: null as HTMLSpanElement | null,
     devCopyStatus: null as HTMLSpanElement | null,
     devCopyButton: null as HTMLButtonElement | null,
     devRebuildButton: null as HTMLButtonElement | null,
@@ -458,8 +469,10 @@ export function mountTriCoachChat(root: HTMLElement) {
               <div class="text-[11px] text-slate-400">
                 sections:
                 always=<span data-dev-sec-always class="text-slate-200"></span>,
+                doctrine=<span data-dev-sec-doctrine class="text-slate-200"></span>,
                 history=<span data-dev-sec-history class="text-slate-200"></span>,
-                restmenu=<span data-dev-sec-rest class="text-slate-200"></span>
+                restmenu=<span data-dev-sec-rest class="text-slate-200"></span>,
+                recent=<span data-dev-sec-recent class="text-slate-200"></span>
               </div>
               <pre data-dev-pack-preview class="max-h-32 overflow-auto rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-200"></pre>
               <details class="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
@@ -557,8 +570,10 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.devPackJson = root.querySelector("[data-dev-pack-json]");
     ui.devPackFull = root.querySelector("[data-dev-pack-full]");
     ui.devSectionAlways = root.querySelector("[data-dev-sec-always]");
+    ui.devSectionDoctrine = root.querySelector("[data-dev-sec-doctrine]");
     ui.devSectionHistory = root.querySelector("[data-dev-sec-history]");
     ui.devSectionRest = root.querySelector("[data-dev-sec-rest]");
+    ui.devSectionRecent = root.querySelector("[data-dev-sec-recent]");
     ui.devCopyStatus = root.querySelector("[data-dev-copy-status]");
     ui.devCopyButton = root.querySelector("[data-dev-copy]");
     ui.devRebuildButton = root.querySelector("[data-dev-rebuild]");
@@ -810,58 +825,111 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.saveButton.disabled = saveDisabled;
   }
 
-  function buildContextPack() {
+  function getContextPackOptions(): ContextPackOptions {
     return {
-      always: true,
+      includeHistory: true,
       historyRange: state.historyRange,
-      restMenuOn: state.restMenuOn,
+      includeRestMenu: state.restMenuOn,
+      includeRecentChat: true,
+      recentTurns: 2,
     };
   }
 
-  function buildDevPayload() {
-    const doctrine = state.doctrine;
-    const alwaysLines: string[] = [];
-    if (doctrine) {
-      const items: Array<[string, string]> = [
-        ["Short-term", doctrine.shortTermGoal],
-        ["Season", doctrine.seasonGoal],
-        ["Constraints", doctrine.constraints],
-        ["Doctrine", doctrine.doctrine],
-      ];
-      items.forEach(([label, value]) => {
-        const trimmed = value.trim();
-        if (trimmed) {
-          alwaysLines.push(`${label}: ${trimmed}`);
-        }
-      });
+  function updateDevPanelPayloadUI() {
+    if (!ui.devPackPreview || !ui.devPackJson || !ui.devPackChars) {
+      return;
     }
-    if (alwaysLines.length === 0) {
-      alwaysLines.push("(no data)");
+    if (!devPayload) {
+      const fallback = devPayloadError ? `(error: ${devPayloadError})` : "(no data)";
+      ui.devPackPreview.textContent = fallback;
+      ui.devPackJson.textContent = fallback;
+      ui.devPackChars.textContent = "0";
+      if (ui.devPackFull) {
+        ui.devPackFull.textContent = fallback;
+      }
+      if (ui.devSectionAlways) {
+        ui.devSectionAlways.textContent = "true";
+      }
+      if (ui.devSectionDoctrine) {
+        ui.devSectionDoctrine.textContent = "false";
+      }
+      if (ui.devSectionHistory) {
+        ui.devSectionHistory.textContent = "false";
+      }
+      if (ui.devSectionRest) {
+        ui.devSectionRest.textContent = "false";
+      }
+      if (ui.devSectionRecent) {
+        ui.devSectionRecent.textContent = "false";
+      }
+      return;
     }
 
-    const lines = [
-      "[ALWAYS]",
-      ...alwaysLines,
-      "",
-      `[HISTORY: ${state.historyRange}]`,
-      "(no data)",
-      "",
-      "[RESTMENU]",
-      state.restMenuOn ? "(on)" : "(off)",
-    ];
+    const previewLimit = 1200;
+    const preview =
+      devPayload.text.length > previewLimit
+        ? `${devPayload.text.slice(0, previewLimit)}...(trimmed)`
+        : devPayload.text;
+    ui.devPackPreview.textContent = preview;
+    ui.devPackChars.textContent = String(devPayload.meta.chars);
+    if (ui.devPackFull) {
+      ui.devPackFull.textContent = devPayload.text;
+    }
+    if (ui.devSectionAlways) {
+      ui.devSectionAlways.textContent = "true";
+    }
+    if (ui.devSectionDoctrine) {
+      ui.devSectionDoctrine.textContent = String(devPayload.meta.sections.doctrine);
+    }
+    if (ui.devSectionHistory) {
+      ui.devSectionHistory.textContent = String(devPayload.meta.sections.history);
+    }
+    if (ui.devSectionRest) {
+      ui.devSectionRest.textContent = String(devPayload.meta.sections.restmenu);
+    }
+    if (ui.devSectionRecent) {
+      ui.devSectionRecent.textContent = String(devPayload.meta.sections.recentChat);
+    }
 
-    const text = lines.join("\n");
-    return {
-      text,
-      meta: {
-        chars: text.length,
-        sections: {
-          always: true,
-          history: true,
-          restmenu: state.restMenuOn,
-        },
-      },
+    const jsonView = {
+      options: getContextPackOptions(),
+      meta: devPayload.meta,
+      debug: devPayload.debug ?? null,
     };
+    try {
+      ui.devPackJson.textContent = JSON.stringify(jsonView, null, 2);
+    } catch (error) {
+      console.error("dev panel stringify failed", error);
+      ui.devPackJson.textContent = "(error: stringify failed)";
+    }
+  }
+
+  async function rebuildDevPayload(force = false) {
+    if (!isDev) {
+      return;
+    }
+    const options = getContextPackOptions();
+    const key = JSON.stringify(options);
+    if (!force && devPayload && devPayloadKey === key) {
+      return;
+    }
+    if (devPayloadLoading) {
+      return;
+    }
+    devPayloadLoading = true;
+    devPayloadKey = key;
+    devPayloadError = null;
+    updateDevPanelPayloadUI();
+    try {
+      devPayload = await buildContextPack(options);
+    } catch (error) {
+      console.error("dev panel buildContextPack failed", error);
+      devPayload = null;
+      devPayloadError = "build failed";
+    } finally {
+      devPayloadLoading = false;
+      updateDevPanelPayloadUI();
+    }
   }
 
   function updateDevPanelUI(forceRebuild = false) {
@@ -889,31 +957,10 @@ export function mountTriCoachChat(root: HTMLElement) {
       ui.devRestMenu.textContent = String(state.restMenuOn);
     }
 
-    if (!ui.devPackPreview || !ui.devPackJson || !ui.devPackChars) {
-      return;
-    }
-    const pack = buildContextPack();
-    const packString = JSON.stringify(pack);
-    const payload = buildDevPayload();
-    const previewLimit = 1200;
-    const preview =
-      payload.text.length > previewLimit
-        ? `${payload.text.slice(0, previewLimit)}…(trimmed)`
-        : payload.text;
-    ui.devPackPreview.textContent = preview;
-    ui.devPackJson.textContent = JSON.stringify(pack, null, 2);
-    ui.devPackChars.textContent = String(payload.meta.chars);
-    if (ui.devPackFull) {
-      ui.devPackFull.textContent = payload.text;
-    }
-    if (ui.devSectionAlways) {
-      ui.devSectionAlways.textContent = String(payload.meta.sections.always);
-    }
-    if (ui.devSectionHistory) {
-      ui.devSectionHistory.textContent = String(payload.meta.sections.history);
-    }
-    if (ui.devSectionRest) {
-      ui.devSectionRest.textContent = String(payload.meta.sections.restmenu);
+    updateDevPanelPayloadUI();
+    const shouldRebuild = forceRebuild || (expanded && (!devPayload || devPayloadKey !== JSON.stringify(getContextPackOptions())));
+    if (shouldRebuild) {
+      void rebuildDevPayload(forceRebuild);
     }
     if (forceRebuild && ui.devCopyStatus) {
       ui.devCopyStatus.textContent = "rebuilt";
@@ -926,8 +973,12 @@ export function mountTriCoachChat(root: HTMLElement) {
       return;
     }
     try {
-      const payload = buildDevPayload();
-      await navigator.clipboard.writeText(payload.text);
+      if (!devPayload) {
+        ui.devCopyStatus.textContent = "no-pack";
+        clearCopyStatusLater();
+        return;
+      }
+      await navigator.clipboard.writeText(devPayload.text);
       ui.devCopyStatus.textContent = "copied";
     } catch (error) {
       console.error("dev panel copy failed", error);
