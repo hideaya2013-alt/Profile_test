@@ -187,3 +187,45 @@
 1) /?dev でpayload preview/fullがDB内容を反映する
 2) Historyがヒット日方式でJSON列挙される
 3) Copy PackでFULL PAYLOADがコピーされる
+
+## 2026-01-25 (Session: FastAPI Echo Stub)
+### Done
+- FastAPI backendをbackend/配下に追加しhealth/echo/chatを実装
+- CORSをlocalhost:5173に許可しSwaggerで試せる構成を用意
+- OpenAIキー有無で呼び出し経路を切り替えるstubを準備
+
+### Touched files
+- backend/main.py
+- backend/schemas.py
+- backend/config.py
+- requirements.txt
+
+### Key diffs (high level)
+- /health, /v1/echo, /v1/chat の3エンドポイントを追加
+- /v1/echoはpayloadのhead/hasSectionsを返す
+- /v1/chatはstub応答を返しOpenAI差し替え口を用意
+
+### How to verify
+1) pip install -r requirements.txt
+2) uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+3) http://localhost:8000/health が200で返る
+4) /docs で /v1/echo と /v1/chat を試す
+
+### Next
+- OpenAI API連携の本実装
+
+## 2026-01-25 (Session: TriCoach Health Check Simplify)
+### Done
+- TriCoach Chatのhealth判定をres.okのみで接続判定するよう簡素化
+- Abort/差分更新/失敗時falseの挙動を維持
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- /healthのJSON解析を廃止しres.okでconnectedを判定
+- 例外時はconnected=falseに倒してログ出力
+
+### How to verify
+1) backend停止でCONNECTEDがOFFLINEに戻る
+2) /healthが200の時のみCONNECTEDになる

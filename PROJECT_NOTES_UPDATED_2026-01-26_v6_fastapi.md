@@ -2,7 +2,7 @@
 
 この文書は **本プロジェクト固有**。CODEX.md（不変契約）に反しない範囲で更新してよい。
 
-最終更新: 2026-01-24
+最終更新: 2026-01-25
 
 ---
 
@@ -405,3 +405,36 @@ TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマ�
 
 ### Next
 - ...
+
+---
+
+## 6. Backend（FastAPI）MVP：疎通確認とChat中継（保存は次段）
+目的：
+- CONNECTED 表示は「FastAPIの疎通（家WiFiで到達できる）」のみを意味する
+- 現段階では SoT はフロント（IndexedDB）のまま。Backend は中継・観測の最小に留める
+- メニュー保存（Plan登録/Progress更新）は次段で追加する
+
+### 6.1 Endpoints（固定）
+- GET /health
+  - 用途：CONNECTED 判定（疎通）
+  - 判定：HTTP 200（res.ok）を正（JSON 形には依存しない）
+  - Response(参考): { ok, service, version, time }
+
+- POST /v1/echo
+  - 用途：Swaggerで payload(text) の受信確認（OpenAIは呼ばない）
+  - Request: { text: string, options?: object, meta?: object }
+  - Response: { chars, head, hasSections }
+
+- POST /v1/chat
+  - 用途：payload(text) を入力としてAI応答を返す（まずはstubでOK）
+  - Request: { text: string, max_output_chars?: number }
+  - Response: { replyText: string, requestId: string }
+
+### 6.2 Non-goals（この段階ではやらない）
+- Plan保存（PUT/POST）
+- Activity/Profile/Doctrine のCRUD（SoTはフロントDB）
+- ストリーミング（必要なら次段）
+
+### 6.3 接続ルール（固定）
+- フロントは contextPackService が生成した FULL PAYLOAD（result.text）を API に送る
+- debug/meta は原則送らない（必要時のみ /v1/echo で確認に使用）

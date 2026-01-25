@@ -171,19 +171,8 @@ export function mountTriCoachChat(root: HTMLElement) {
     try {
       const url = `${API_BASE}/health`;
       const res = await fetch(url, { cache: "no-store", signal: healthAbort.signal });
-      let next = false;
-      let result = res.ok ? "not-ok" : "not-ok";
-      if (res.ok) {
-        try {
-          const data = (await res.json()) as { status?: string } | null;
-          next = data?.status === "ok";
-          result = next ? "ok" : "not-ok";
-        } catch {
-          result = "bad-json";
-        }
-      } else {
-        result = "not-ok";
-      }
+      const next = res.ok;
+      const result = next ? "ok" : "not-ok";
       state.lastHealthAt = stamp;
       state.lastHealthResult = result;
       if (next !== state.connected) {
@@ -191,7 +180,8 @@ export function mountTriCoachChat(root: HTMLElement) {
         updateConnectedUI();
       }
       updateDevPanelUI();
-    } catch {
+    } catch (error) {
+      console.error("health check failed", error);
       if (state.connected) {
         state.connected = false;
         updateConnectedUI();
