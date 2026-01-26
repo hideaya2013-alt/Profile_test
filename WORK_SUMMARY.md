@@ -250,3 +250,24 @@
 
 ### Next
 - newActivity.ts の解析/保存ロジック分割
+
+## 2026-01-26 (Session: New Activity Import Split)
+### Done
+- newActivity のGPX/TCX判定・パース・XMLヘルパ・計算を newActivity.import.ts に分離
+- newActivity.ts を import API 呼び出しに置換しUI/保存/イベント中心に整理
+
+### Touched files
+- src/screens/newActivity.ts
+- src/screens/newActivity.import.ts
+
+### Key diffs (high level)
+- parseImportFile/detectImportSource/parseToDraft を新規モジュールに集約
+- 既存のGPX/TCXドラフト生成ロジックを移設しUI側の挙動は維持
+
+### How to verify
+1) 既存サンプルTCX/GPXを読み込み、カードの主要値が従来と一致する
+2) sport/sRPE入力後に保存し、DBへ同じ内容が入る
+3) /?dev でデバッグ表示やSave導線が従来通り
+
+### Next
+- newActivity.ts の保存/バリデーション周りの整理
