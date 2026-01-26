@@ -229,3 +229,24 @@
 ### How to verify
 1) backend停止でCONNECTEDがOFFLINEに戻る
 2) /healthが200の時のみCONNECTEDになる
+
+## 2026-01-25 (Session: TriCoach Dev Panel Split)
+### Done
+- dev panel 関連ロジックを triCoachChat.dev.ts に切り出し
+- triCoachChat.ts から dev panel DOM/イベント/更新処理を分離
+
+### Touched files
+- src/screens/triCoachChat.ts
+- src/screens/triCoachChat.dev.ts
+
+### Key diffs (high level)
+- dev panel の生成/更新/Copy/Rebuild を専用モジュールへ移動
+- triCoachChat は initDevPanel を呼ぶだけに簡素化
+
+### How to verify
+1) /?dev で payload preview/full/copy が表示される
+2) Rebuild Pack が動く
+3) CONNECTED 表示が従来通り更新される
+
+### Next
+- newActivity.ts の解析/保存ロジック分割

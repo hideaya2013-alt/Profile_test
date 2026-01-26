@@ -1,8 +1,12 @@
-# PROJECT_NOTES.md（Profile_test 固有仕様）
+﻿# PROJECT_NOTES.md（Profile_test 固有仕様）
 
 この文書は **本プロジェクト固有**。CODEX.md（不変契約）に反しない範囲で更新してよい。
+## Large files policy: 
+-screen files > ~800-1000 lines は “パーサ/整形/デバッグ” を別ファイルへ退避し、
+ screenは mount + UI/state に寄せる
+-Dependency rule: screen -> helper/dev/import の一方向依存（逆流禁止）
 
-最終更新: 2026-01-25
+最終更新: 2026-01-26
 
 ---
 
@@ -176,6 +180,8 @@ export interface Plan {
 - 目的：Chat画面のUI状態（チェック/7d-14d）と、DB（Source of Truth）から、APIへ送る **最終payload** を生成する
 - 方針：生成（DB→整形）は service に集約。Chat画面は「＋」パネルの選択状態とユーザー入力だけを扱う
 - /?dev は service の返り値（payload）を可視化して検証する
+- HistoryRange(7d/14d) は「データが存在する“日”を7/14回ヒットするまで遡る」。
+  ヒットした日については、その日のアクティビティを全件含める。
 
 #### ファイル
 - src/services/contextPackService.ts
@@ -438,3 +444,4 @@ TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマ�
 ### 6.3 接続ルール（固定）
 - フロントは contextPackService が生成した FULL PAYLOAD（result.text）を API に送る
 - debug/meta は原則送らない（必要時のみ /v1/echo で確認に使用）
+

@@ -1,12 +1,8 @@
 ﻿import { loadDoctrine, saveDoctrine, type DoctrineData } from "../db";
 import alertSvg from "../assets/icons/common/alert.svg?raw";
-import {
-  buildContextPack,
-  type ContextPackOptions,
-  type ContextPackResult,
-} from "../services/contextPackService";
 import checkSvg from "../assets/icons/common/check.svg?raw";
 import editSvg from "../assets/icons/common/edit.svg?raw";
+import { initDevPanel, renderDevPanelHtml, type DevPanelController } from "./triCoachChat.dev";
 import syncSvg from "../assets/icons/common/sync.svg?raw";
 
 type HistoryRange = "7d" | "14d";
@@ -51,13 +47,9 @@ export function mountTriCoachChat(root: HTMLElement) {
   let healthTimer: ReturnType<typeof setInterval> | null = null;
   let healthAbort: AbortController | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let copyTimer: ReturnType<typeof setTimeout> | null = null;
   const controller = new AbortController();
   const isDev = new URLSearchParams(location.search).has("dev");
-  let devPayload: ContextPackResult | null = null;
-  let devPayloadKey = "";
-  let devPayloadLoading = false;
-  let devPayloadError: string | null = null;
+  let devPanel: DevPanelController | null = null;
 
   const state = {
     connected: false,
@@ -92,27 +84,6 @@ export function mountTriCoachChat(root: HTMLElement) {
     confirmUpdate: null as HTMLButtonElement | null,
     chatInput: null as HTMLTextAreaElement | null,
     sendButton: null as HTMLButtonElement | null,
-    devPanel: null as HTMLDivElement | null,
-    devToggle: null as HTMLButtonElement | null,
-    devContent: null as HTMLDivElement | null,
-    devApiBase: null as HTMLSpanElement | null,
-    devConnected: null as HTMLSpanElement | null,
-    devHealthAt: null as HTMLSpanElement | null,
-    devHealthResult: null as HTMLSpanElement | null,
-    devHistoryRange: null as HTMLSpanElement | null,
-    devRestMenu: null as HTMLSpanElement | null,
-    devPackChars: null as HTMLSpanElement | null,
-    devPackPreview: null as HTMLPreElement | null,
-    devPackJson: null as HTMLPreElement | null,
-    devPackFull: null as HTMLPreElement | null,
-    devSectionAlways: null as HTMLSpanElement | null,
-    devSectionDoctrine: null as HTMLSpanElement | null,
-    devSectionHistory: null as HTMLSpanElement | null,
-    devSectionRest: null as HTMLSpanElement | null,
-    devSectionRecent: null as HTMLSpanElement | null,
-    devCopyStatus: null as HTMLSpanElement | null,
-    devCopyButton: null as HTMLButtonElement | null,
-    devRebuildButton: null as HTMLButtonElement | null,
     overlay: null as HTMLDivElement | null,
     overlayUpdatedAt: null as HTMLSpanElement | null,
     saveButton: null as HTMLButtonElement | null,
@@ -121,6 +92,30 @@ export function mountTriCoachChat(root: HTMLElement) {
   };
 
   renderOnce();
+  devPanel = initDevPanel({
+    root,
+    isDev,
+    apiBaseRaw: API_BASE_RAW,
+    signal: controller.signal,
+    getState: () => ({
+      connected: state.connected,
+      historyRange: state.historyRange,
+      restMenuOn: state.restMenuOn,
+      devPanelOpen: state.devPanelOpen,
+      lastHealthAt: state.lastHealthAt,
+      lastHealthResult: state.lastHealthResult,
+    }),
+    setDevPanelOpen: (next) => {
+      state.devPanelOpen = next;
+    },
+    getContextPackOptions: () => ({
+      includeHistory: true,
+      historyRange: state.historyRange,
+      includeRestMenu: state.restMenuOn,
+      includeRecentChat: true,
+      recentTurns: 2,
+    }),
+  });
   bindOnce(controller.signal);
   startHealthCheck();
   void loadDoctrineData();
@@ -134,10 +129,8 @@ export function mountTriCoachChat(root: HTMLElement) {
     if (saveTimer) {
       clearTimeout(saveTimer);
     }
-    if (copyTimer) {
-      clearTimeout(copyTimer);
-    }
     healthAbort?.abort();
+    devPanel?.dispose();
   };
 
   async function loadDoctrineData() {
@@ -179,7 +172,7 @@ export function mountTriCoachChat(root: HTMLElement) {
         state.connected = next;
         updateConnectedUI();
       }
-      updateDevPanelUI();
+      devPanel?.update();
     } catch (error) {
       console.error("health check failed", error);
       if (state.connected) {
@@ -188,7 +181,7 @@ export function mountTriCoachChat(root: HTMLElement) {
       }
       state.lastHealthAt = stamp;
       state.lastHealthResult = "fetch-error";
-      updateDevPanelUI();
+      devPanel?.update();
     }
   }
 
@@ -423,77 +416,7 @@ export function mountTriCoachChat(root: HTMLElement) {
         </div>
       </div>
 
-      <div
-        data-dev-panel
-        ${isDev ? "" : "hidden"}
-        class="fixed bottom-20 left-0 right-0 z-40 px-4"
-      >
-        <div class="mx-auto max-w-[520px] rounded-2xl border border-slate-800 bg-slate-950/95 shadow-lg shadow-black/40">
-          <button
-            type="button"
-            data-dev-toggle
-            class="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400"
-          >
-            Dev Panel
-            <span data-dev-toggle-icon class="text-slate-500">▾</span>
-          </button>
-          <div data-dev-content class="px-4 pb-4 text-xs text-slate-300">
-            <div class="space-y-2 border-t border-slate-800 pt-3">
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Env / Network</div>
-              <div>VITE_API_BASE: <span data-dev-api-base class="text-slate-200"></span></div>
-              <div>connected: <span data-dev-connected class="text-slate-200"></span></div>
-              <div>lastHealthAt: <span data-dev-health-at class="text-slate-200"></span></div>
-              <div>lastHealthResult: <span data-dev-health-result class="text-slate-200"></span></div>
-            </div>
-            <div class="mt-3 space-y-1">
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Context selection</div>
-              <div>Always: ON</div>
-              <div>historyRange: <span data-dev-history-range class="text-slate-200"></span></div>
-              <div>restMenuOn: <span data-dev-restmenu class="text-slate-200"></span></div>
-            </div>
-            <div class="mt-3 space-y-2">
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payload preview</div>
-              <div>
-                chars: <span data-dev-pack-chars class="text-slate-200"></span>
-              </div>
-              <div class="text-[11px] text-slate-400">
-                sections:
-                always=<span data-dev-sec-always class="text-slate-200"></span>,
-                doctrine=<span data-dev-sec-doctrine class="text-slate-200"></span>,
-                history=<span data-dev-sec-history class="text-slate-200"></span>,
-                restmenu=<span data-dev-sec-rest class="text-slate-200"></span>,
-                recent=<span data-dev-sec-recent class="text-slate-200"></span>
-              </div>
-              <pre data-dev-pack-preview class="max-h-32 overflow-auto rounded-xl border border-slate-800 bg-slate-900/40 p-3 text-[11px] text-slate-200"></pre>
-              <details class="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
-                <summary class="cursor-pointer text-[11px] font-semibold text-slate-400">FULL PAYLOAD</summary>
-                <pre data-dev-pack-full class="mt-2 whitespace-pre-wrap text-[11px] text-slate-200"></pre>
-              </details>
-              <details class="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
-                <summary class="cursor-pointer text-[11px] font-semibold text-slate-400">JSON</summary>
-                <pre data-dev-pack-json class="mt-2 whitespace-pre-wrap text-[11px] text-slate-200"></pre>
-              </details>
-            </div>
-            <div class="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                data-dev-copy
-                class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-200 hover:border-slate-500"
-              >
-                Copy Pack
-              </button>
-              <button
-                type="button"
-                data-dev-rebuild
-                class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-200 hover:border-slate-500"
-              >
-                Rebuild Pack
-              </button>
-              <span data-dev-copy-status class="text-[11px] text-slate-400"></span>
-            </div>
-          </div>
-        </div>
-      </div>
+      ${renderDevPanelHtml(isDev)}
 
       <div data-overlay hidden class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/95">
         <div class="mx-auto max-w-[520px] px-5 py-6">
@@ -546,27 +469,6 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.confirmUpdate = root.querySelector("[data-confirm-update]");
     ui.chatInput = root.querySelector("[data-chat-input]");
     ui.sendButton = root.querySelector("[data-send]");
-    ui.devPanel = root.querySelector("[data-dev-panel]");
-    ui.devToggle = root.querySelector("[data-dev-toggle]");
-    ui.devContent = root.querySelector("[data-dev-content]");
-    ui.devApiBase = root.querySelector("[data-dev-api-base]");
-    ui.devConnected = root.querySelector("[data-dev-connected]");
-    ui.devHealthAt = root.querySelector("[data-dev-health-at]");
-    ui.devHealthResult = root.querySelector("[data-dev-health-result]");
-    ui.devHistoryRange = root.querySelector("[data-dev-history-range]");
-    ui.devRestMenu = root.querySelector("[data-dev-restmenu]");
-    ui.devPackChars = root.querySelector("[data-dev-pack-chars]");
-    ui.devPackPreview = root.querySelector("[data-dev-pack-preview]");
-    ui.devPackJson = root.querySelector("[data-dev-pack-json]");
-    ui.devPackFull = root.querySelector("[data-dev-pack-full]");
-    ui.devSectionAlways = root.querySelector("[data-dev-sec-always]");
-    ui.devSectionDoctrine = root.querySelector("[data-dev-sec-doctrine]");
-    ui.devSectionHistory = root.querySelector("[data-dev-sec-history]");
-    ui.devSectionRest = root.querySelector("[data-dev-sec-rest]");
-    ui.devSectionRecent = root.querySelector("[data-dev-sec-recent]");
-    ui.devCopyStatus = root.querySelector("[data-dev-copy-status]");
-    ui.devCopyButton = root.querySelector("[data-dev-copy]");
-    ui.devRebuildButton = root.querySelector("[data-dev-rebuild]");
     ui.overlay = root.querySelector("[data-overlay]");
     ui.overlayUpdatedAt = root.querySelector("[data-doctrine-updated]");
     ui.saveButton = root.querySelector("[data-doctrine-save]");
@@ -658,31 +560,6 @@ export function mountTriCoachChat(root: HTMLElement) {
       { signal },
     );
 
-    ui.devToggle?.addEventListener(
-      "click",
-      () => {
-        state.devPanelOpen = !state.devPanelOpen;
-        updateDevPanelUI();
-      },
-      { signal },
-    );
-
-    ui.devCopyButton?.addEventListener(
-      "click",
-      () => {
-        void handleCopyPack();
-      },
-      { signal },
-    );
-
-    ui.devRebuildButton?.addEventListener(
-      "click",
-      () => {
-        updateDevPanelUI(true);
-      },
-      { signal },
-    );
-
     ui.chatInput?.addEventListener(
       "keydown",
       (event) => {
@@ -707,7 +584,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     updateOverlayVisibility();
     updateOverlayUpdatedAt();
     updateDoctrineSaveUI();
-    updateDevPanelUI();
+    devPanel?.update();
   }
 
   function updateSyncUI() {
@@ -745,7 +622,7 @@ export function mountTriCoachChat(root: HTMLElement) {
         active ? HISTORY_ACTIVE_CLASSES : HISTORY_IDLE_CLASSES
       }`;
     });
-    updateDevPanelUI();
+    devPanel?.update();
   }
 
   function updateRestMenuUI() {
@@ -754,7 +631,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     }
     ui.restMenuLabel.textContent = state.restMenuOn ? "ON" : "OFF";
     ui.restMenuInput.checked = state.restMenuOn;
-    updateDevPanelUI();
+    devPanel?.update();
   }
 
   function updateConfirmUpdateUI() {
@@ -813,179 +690,6 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.saveButton.textContent = label;
     ui.saveButton.className = `inline-flex items-center justify-center gap-2 rounded-full border px-4 py-3 text-sm font-semibold ${tone} ${disabledClass}`;
     ui.saveButton.disabled = saveDisabled;
-  }
-
-  function getContextPackOptions(): ContextPackOptions {
-    return {
-      includeHistory: true,
-      historyRange: state.historyRange,
-      includeRestMenu: state.restMenuOn,
-      includeRecentChat: true,
-      recentTurns: 2,
-    };
-  }
-
-  function updateDevPanelPayloadUI() {
-    if (!ui.devPackPreview || !ui.devPackJson || !ui.devPackChars) {
-      return;
-    }
-    if (!devPayload) {
-      const fallback = devPayloadError ? `(error: ${devPayloadError})` : "(no data)";
-      ui.devPackPreview.textContent = fallback;
-      ui.devPackJson.textContent = fallback;
-      ui.devPackChars.textContent = "0";
-      if (ui.devPackFull) {
-        ui.devPackFull.textContent = fallback;
-      }
-      if (ui.devSectionAlways) {
-        ui.devSectionAlways.textContent = "true";
-      }
-      if (ui.devSectionDoctrine) {
-        ui.devSectionDoctrine.textContent = "false";
-      }
-      if (ui.devSectionHistory) {
-        ui.devSectionHistory.textContent = "false";
-      }
-      if (ui.devSectionRest) {
-        ui.devSectionRest.textContent = "false";
-      }
-      if (ui.devSectionRecent) {
-        ui.devSectionRecent.textContent = "false";
-      }
-      return;
-    }
-
-    const previewLimit = 1200;
-    const preview =
-      devPayload.text.length > previewLimit
-        ? `${devPayload.text.slice(0, previewLimit)}...(trimmed)`
-        : devPayload.text;
-    ui.devPackPreview.textContent = preview;
-    ui.devPackChars.textContent = String(devPayload.meta.chars);
-    if (ui.devPackFull) {
-      ui.devPackFull.textContent = devPayload.text;
-    }
-    if (ui.devSectionAlways) {
-      ui.devSectionAlways.textContent = "true";
-    }
-    if (ui.devSectionDoctrine) {
-      ui.devSectionDoctrine.textContent = String(devPayload.meta.sections.doctrine);
-    }
-    if (ui.devSectionHistory) {
-      ui.devSectionHistory.textContent = String(devPayload.meta.sections.history);
-    }
-    if (ui.devSectionRest) {
-      ui.devSectionRest.textContent = String(devPayload.meta.sections.restmenu);
-    }
-    if (ui.devSectionRecent) {
-      ui.devSectionRecent.textContent = String(devPayload.meta.sections.recentChat);
-    }
-
-    const jsonView = {
-      options: getContextPackOptions(),
-      meta: devPayload.meta,
-      debug: devPayload.debug ?? null,
-    };
-    try {
-      ui.devPackJson.textContent = JSON.stringify(jsonView, null, 2);
-    } catch (error) {
-      console.error("dev panel stringify failed", error);
-      ui.devPackJson.textContent = "(error: stringify failed)";
-    }
-  }
-
-  async function rebuildDevPayload(force = false) {
-    if (!isDev) {
-      return;
-    }
-    const options = getContextPackOptions();
-    const key = JSON.stringify(options);
-    if (!force && devPayload && devPayloadKey === key) {
-      return;
-    }
-    if (devPayloadLoading) {
-      return;
-    }
-    devPayloadLoading = true;
-    devPayloadKey = key;
-    devPayloadError = null;
-    updateDevPanelPayloadUI();
-    try {
-      devPayload = await buildContextPack(options);
-    } catch (error) {
-      console.error("dev panel buildContextPack failed", error);
-      devPayload = null;
-      devPayloadError = "build failed";
-    } finally {
-      devPayloadLoading = false;
-      updateDevPanelPayloadUI();
-    }
-  }
-
-  function updateDevPanelUI(forceRebuild = false) {
-    if (!isDev || !ui.devPanel) {
-      return;
-    }
-    if (!ui.devContent || !ui.devApiBase || !ui.devConnected || !ui.devHealthAt || !ui.devHealthResult) {
-      return;
-    }
-    ui.devPanel.hidden = false;
-    const expanded = state.devPanelOpen;
-    ui.devContent.classList.toggle("hidden", !expanded);
-    const toggleIcon = ui.devToggle?.querySelector("[data-dev-toggle-icon]");
-    if (toggleIcon) {
-      toggleIcon.textContent = expanded ? "▴" : "▾";
-    }
-    ui.devApiBase.textContent = API_BASE_RAW || "-";
-    ui.devConnected.textContent = String(state.connected);
-    ui.devHealthAt.textContent = state.lastHealthAt;
-    ui.devHealthResult.textContent = state.lastHealthResult;
-    if (ui.devHistoryRange) {
-      ui.devHistoryRange.textContent = state.historyRange;
-    }
-    if (ui.devRestMenu) {
-      ui.devRestMenu.textContent = String(state.restMenuOn);
-    }
-
-    updateDevPanelPayloadUI();
-    const shouldRebuild = forceRebuild || (expanded && (!devPayload || devPayloadKey !== JSON.stringify(getContextPackOptions())));
-    if (shouldRebuild) {
-      void rebuildDevPayload(forceRebuild);
-    }
-    if (forceRebuild && ui.devCopyStatus) {
-      ui.devCopyStatus.textContent = "rebuilt";
-      clearCopyStatusLater();
-    }
-  }
-
-  async function handleCopyPack() {
-    if (!ui.devCopyStatus) {
-      return;
-    }
-    try {
-      if (!devPayload) {
-        ui.devCopyStatus.textContent = "no-pack";
-        clearCopyStatusLater();
-        return;
-      }
-      await navigator.clipboard.writeText(devPayload.text);
-      ui.devCopyStatus.textContent = "copied";
-    } catch (error) {
-      console.error("dev panel copy failed", error);
-      ui.devCopyStatus.textContent = "copy-fault";
-    }
-    clearCopyStatusLater();
-  }
-
-  function clearCopyStatusLater() {
-    if (copyTimer) {
-      clearTimeout(copyTimer);
-    }
-    copyTimer = setTimeout(() => {
-      if (ui.devCopyStatus) {
-        ui.devCopyStatus.textContent = "";
-      }
-    }, 1200);
   }
 
   function handleSend() {
