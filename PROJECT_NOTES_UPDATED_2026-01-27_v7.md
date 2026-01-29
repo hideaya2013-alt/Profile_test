@@ -6,7 +6,7 @@
  screenは mount + UI/state に寄せる
 -Dependency rule: screen -> helper/dev/import の一方向依存（逆流禁止）
 
-最終更新: 2026-01-26
+最終更新: 2026-01-27
 
 ---
 
@@ -331,6 +331,7 @@ TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマ�
   - History（ONで 7d / 14d を単一選択）
   - RestMenu（未消化メニュー）
   - Recent Chat（直近 2〜3 ターン）
+  -「選択状態はチップ表示（History:7d / RestMenu / Chat:2T）を入力バー直上に表示」
 
 ##### 実装責務（破綻しない分離：固定）
 - 入力されたデータは必ず一度DBへ保存（Source of Truth）
@@ -424,7 +425,6 @@ TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマ�
 - GET /health
   - 用途：CONNECTED 判定（疎通）
   - 判定：HTTP 200（res.ok）を正（JSON 形には依存しない）
-  - Response(参考): { ok, service, version, time }
 
 - POST /v1/echo
   - 用途：Swaggerで payload(text) の受信確認（OpenAIは呼ばない）
