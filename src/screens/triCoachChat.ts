@@ -2,11 +2,19 @@
 import alertSvg from "../assets/icons/common/alert.svg?raw";
 import checkSvg from "../assets/icons/common/check.svg?raw";
 import editSvg from "../assets/icons/common/edit.svg?raw";
+import { buildContextPack } from "../services/contextPackService";
 import { initDevPanel, renderDevPanelHtml, type DevPanelController } from "./triCoachChat.dev";
 import syncSvg from "../assets/icons/common/sync.svg?raw";
 
 type HistoryRange = "7d" | "14d";
 type SaveFlash = "saved" | "fault" | null;
+type ContextOptionState = {
+  includeHistory: boolean;
+  includeRestMenu: boolean;
+  includeRecentChat: boolean;
+  historyRange: HistoryRange;
+  recentTurns: 2;
+};
 const API_BASE_RAW = import.meta.env.VITE_API_BASE ?? "";
 const API_BASE = API_BASE_RAW.replace(/\/$/, "");
 
@@ -47,6 +55,7 @@ export function mountTriCoachChat(root: HTMLElement) {
   let healthTimer: ReturnType<typeof setInterval> | null = null;
   let healthAbort: AbortController | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight = false;
   const controller = new AbortController();
   const isDev = new URLSearchParams(location.search).has("dev");
   let devPanel: DevPanelController | null = null;
@@ -55,7 +64,11 @@ export function mountTriCoachChat(root: HTMLElement) {
     connected: false,
     dirty: false,
     historyRange: "7d" as HistoryRange,
-    restMenuOn: false,
+    includeHistory: false,
+    includeRestMenu: false,
+    includeRecentChat: false,
+    recentTurns: 2 as 2,
+    plusPanelOpen: false,
     hasPlanPatch: false,
     devPanelOpen: false,
     lastHealthAt: "-" as string,
@@ -79,8 +92,15 @@ export function mountTriCoachChat(root: HTMLElement) {
     connectedPill: null as HTMLDivElement | null,
     connectedLabel: null as HTMLSpanElement | null,
     historyButtons: [] as HTMLButtonElement[],
-    restMenuLabel: null as HTMLSpanElement | null,
-    restMenuInput: null as HTMLInputElement | null,
+    plusToggle: null as HTMLButtonElement | null,
+    plusPanel: null as HTMLDivElement | null,
+    plusClose: null as HTMLButtonElement | null,
+    plusHistoryRange: null as HTMLSpanElement | null,
+    plusRecentTurns: null as HTMLSpanElement | null,
+    plusIncludeHistory: null as HTMLInputElement | null,
+    plusIncludeRestMenu: null as HTMLInputElement | null,
+    plusIncludeRecentChat: null as HTMLInputElement | null,
+    plusChips: null as HTMLDivElement | null,
     confirmUpdate: null as HTMLButtonElement | null,
     chatInput: null as HTMLTextAreaElement | null,
     sendButton: null as HTMLButtonElement | null,
@@ -100,7 +120,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     getState: () => ({
       connected: state.connected,
       historyRange: state.historyRange,
-      restMenuOn: state.restMenuOn,
+      restMenuOn: state.includeRestMenu,
       devPanelOpen: state.devPanelOpen,
       lastHealthAt: state.lastHealthAt,
       lastHealthResult: state.lastHealthResult,
@@ -109,11 +129,11 @@ export function mountTriCoachChat(root: HTMLElement) {
       state.devPanelOpen = next;
     },
     getContextPackOptions: () => ({
-      includeHistory: true,
+      includeHistory: state.includeHistory,
       historyRange: state.historyRange,
-      includeRestMenu: state.restMenuOn,
-      includeRecentChat: true,
-      recentTurns: 2,
+      includeRestMenu: state.includeRestMenu,
+      includeRecentChat: state.includeRecentChat,
+      recentTurns: state.recentTurns,
     }),
   });
   bindOnce(controller.signal);
@@ -316,12 +336,11 @@ export function mountTriCoachChat(root: HTMLElement) {
           </header>
 
           <section class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-lg shadow-black/20">
-            <div class="grid grid-cols-3 gap-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div class="grid grid-cols-2 gap-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <div>Doctrine</div>
               <div class="text-center">History</div>
-              <div class="text-right">RestMenu</div>
             </div>
-            <div class="mt-3 grid grid-cols-3 items-center gap-3">
+            <div class="mt-3 grid grid-cols-2 items-center gap-3">
               <button
                 type="button"
                 data-doctrine="open"
@@ -346,25 +365,6 @@ export function mountTriCoachChat(root: HTMLElement) {
                   14 Day
                 </button>
               </div>
-              <label
-                class="flex items-center justify-end gap-2 rounded-2xl border border-slate-800 bg-slate-950/40 px-3 py-3 text-sm font-semibold text-slate-200"
-              >
-                <span data-restmenu-label class="text-xs font-semibold uppercase tracking-wide text-slate-400">OFF</span>
-                <span class="relative">
-                  <input
-                    data-restmenu-input
-                    type="checkbox"
-                    role="switch"
-                    class="peer sr-only"
-                  />
-                  <div
-                    class="h-6 w-11 rounded-full bg-slate-800 transition peer-checked:bg-sky-500/80 peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-slate-950"
-                  ></div>
-                  <div
-                    class="pointer-events-none absolute left-1 top-1 h-4 w-4 rounded-full bg-slate-200 transition peer-checked:translate-x-5 peer-checked:bg-white"
-                  ></div>
-                </span>
-              </label>
             </div>
           </section>
 
@@ -397,7 +397,69 @@ export function mountTriCoachChat(root: HTMLElement) {
           </section>
 
           <div class="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-950/95 px-5 py-4">
-            <div class="mx-auto flex max-w-[520px] items-center gap-3">
+            <div class="mx-auto flex max-w-[520px] items-end gap-3">
+              <div class="relative">
+                <button
+                  type="button"
+                  data-plus-toggle
+                  aria-label="Select context"
+                  aria-expanded="false"
+                  class="h-11 w-11 rounded-full border border-slate-800 bg-slate-900/60 text-slate-100 hover:border-slate-700"
+                >
+                  +
+                </button>
+
+                <div
+                  data-plus-panel
+                  hidden
+                  class="absolute bottom-14 left-0 w-72 rounded-2xl border border-slate-800 bg-slate-950/95 p-3 shadow-lg shadow-black/40"
+                >
+                  <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Send context
+                  </div>
+
+                  <div class="mt-2 space-y-2 text-sm">
+                    <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2">
+                      <div class="flex flex-col">
+                        <span class="font-semibold text-slate-100">History</span>
+                        <span class="text-[11px] text-slate-400">
+                          range: <span data-plus-history-range class="text-slate-200">7d</span>
+                        </span>
+                      </div>
+                      <input type="checkbox" data-plus-include-history class="h-4 w-4 accent-sky-500" />
+                    </label>
+
+                    <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2">
+                      <div class="flex flex-col">
+                        <span class="font-semibold text-slate-100">RestMenu</span>
+                        <span class="text-[11px] text-slate-400">unscheduled items</span>
+                      </div>
+                      <input type="checkbox" data-plus-include-restmenu class="h-4 w-4 accent-sky-500" />
+                    </label>
+
+                    <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2">
+                      <div class="flex flex-col">
+                        <span class="font-semibold text-slate-100">Recent Chat</span>
+                        <span class="text-[11px] text-slate-400">
+                          turns: <span data-plus-recent-turns class="text-slate-200">2</span>
+                        </span>
+                      </div>
+                      <input type="checkbox" data-plus-include-recentchat class="h-4 w-4 accent-sky-500" />
+                    </label>
+                  </div>
+
+                  <div class="mt-3 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      data-plus-close
+                      class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-semibold text-slate-200 hover:border-slate-500"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <textarea
                 data-chat-input
                 rows="2"
@@ -407,11 +469,12 @@ export function mountTriCoachChat(root: HTMLElement) {
               <button
                 type="button"
                 data-send
-                class="h-11 w-11 rounded-full border border-slate-800 bg-sky-500/30 text-sky-100"
+                class="h-11 w-11 rounded-full border border-slate-800 bg-sky-500/30 text-sky-100 disabled:opacity-50"
               >
                 >
               </button>
             </div>
+            <div data-plus-chips class="mx-auto mt-2 flex max-w-[520px] flex-wrap gap-2 text-xs text-slate-200"></div>
           </div>
         </div>
       </div>
@@ -464,8 +527,15 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.connectedPill = root.querySelector("[data-connected-pill]");
     ui.connectedLabel = root.querySelector("[data-connected-label]");
     ui.historyButtons = Array.from(root.querySelectorAll("[data-range]"));
-    ui.restMenuLabel = root.querySelector("[data-restmenu-label]");
-    ui.restMenuInput = root.querySelector("[data-restmenu-input]");
+    ui.plusToggle = root.querySelector("[data-plus-toggle]");
+    ui.plusPanel = root.querySelector("[data-plus-panel]");
+    ui.plusClose = root.querySelector("[data-plus-close]");
+    ui.plusHistoryRange = root.querySelector("[data-plus-history-range]");
+    ui.plusRecentTurns = root.querySelector("[data-plus-recent-turns]");
+    ui.plusIncludeHistory = root.querySelector("[data-plus-include-history]");
+    ui.plusIncludeRestMenu = root.querySelector("[data-plus-include-restmenu]");
+    ui.plusIncludeRecentChat = root.querySelector("[data-plus-include-recentchat]");
+    ui.plusChips = root.querySelector("[data-plus-chips]");
     ui.confirmUpdate = root.querySelector("[data-confirm-update]");
     ui.chatInput = root.querySelector("[data-chat-input]");
     ui.sendButton = root.querySelector("[data-send]");
@@ -508,11 +578,47 @@ export function mountTriCoachChat(root: HTMLElement) {
       );
     });
 
-    ui.restMenuInput?.addEventListener(
+    ui.plusToggle?.addEventListener(
+      "click",
+      () => {
+        state.plusPanelOpen = !state.plusPanelOpen;
+        updatePlusPanelUI();
+      },
+      { signal },
+    );
+
+    ui.plusClose?.addEventListener(
+      "click",
+      () => {
+        state.plusPanelOpen = false;
+        updatePlusPanelUI();
+      },
+      { signal },
+    );
+
+    ui.plusIncludeHistory?.addEventListener(
       "change",
       () => {
-        state.restMenuOn = ui.restMenuInput?.checked ?? false;
-        updateRestMenuUI();
+        state.includeHistory = ui.plusIncludeHistory?.checked ?? false;
+        updatePlusPanelUI();
+      },
+      { signal },
+    );
+
+    ui.plusIncludeRestMenu?.addEventListener(
+      "change",
+      () => {
+        state.includeRestMenu = ui.plusIncludeRestMenu?.checked ?? false;
+        updatePlusPanelUI();
+      },
+      { signal },
+    );
+
+    ui.plusIncludeRecentChat?.addEventListener(
+      "change",
+      () => {
+        state.includeRecentChat = ui.plusIncludeRecentChat?.checked ?? false;
+        updatePlusPanelUI();
       },
       { signal },
     );
@@ -555,7 +661,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.sendButton?.addEventListener(
       "click",
       () => {
-        handleSend();
+        void handleSend();
       },
       { signal },
     );
@@ -568,7 +674,7 @@ export function mountTriCoachChat(root: HTMLElement) {
         }
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
-          handleSend();
+          void handleSend();
         }
       },
       { signal },
@@ -579,11 +685,13 @@ export function mountTriCoachChat(root: HTMLElement) {
     updateSyncUI();
     updateConnectedUI();
     updateHistoryUI();
-    updateRestMenuUI();
     updateConfirmUpdateUI();
     updateOverlayVisibility();
     updateOverlayUpdatedAt();
     updateDoctrineSaveUI();
+    updatePlusPanelUI();
+    updateChipsUI();
+    updateSendUI();
     devPanel?.update();
   }
 
@@ -612,6 +720,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.connectedPill.className = `inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
       connected ? CONNECTED_CLASSES : OFFLINE_CLASSES
     }`;
+    updateSendUI();
   }
 
   function updateHistoryUI() {
@@ -622,15 +731,33 @@ export function mountTriCoachChat(root: HTMLElement) {
         active ? HISTORY_ACTIVE_CLASSES : HISTORY_IDLE_CLASSES
       }`;
     });
+    updatePlusPanelUI();
+    updateChipsUI();
     devPanel?.update();
   }
-
-  function updateRestMenuUI() {
-    if (!ui.restMenuLabel || !ui.restMenuInput) {
+  
+  function updatePlusPanelUI() {
+    if (!ui.plusPanel || !ui.plusToggle) {
       return;
     }
-    ui.restMenuLabel.textContent = state.restMenuOn ? "ON" : "OFF";
-    ui.restMenuInput.checked = state.restMenuOn;
+    ui.plusPanel.hidden = !state.plusPanelOpen;
+    ui.plusToggle.setAttribute("aria-expanded", state.plusPanelOpen ? "true" : "false");
+    if (ui.plusHistoryRange) {
+      ui.plusHistoryRange.textContent = state.historyRange;
+    }
+    if (ui.plusRecentTurns) {
+      ui.plusRecentTurns.textContent = String(state.recentTurns);
+    }
+    if (ui.plusIncludeHistory) {
+      ui.plusIncludeHistory.checked = state.includeHistory;
+    }
+    if (ui.plusIncludeRestMenu) {
+      ui.plusIncludeRestMenu.checked = state.includeRestMenu;
+    }
+    if (ui.plusIncludeRecentChat) {
+      ui.plusIncludeRecentChat.checked = state.includeRecentChat;
+    }
+    updateChipsUI();
     devPanel?.update();
   }
 
@@ -692,16 +819,71 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.saveButton.disabled = saveDisabled;
   }
 
-  function handleSend() {
-    if (!ui.chatInput) {
+  function updateChipsUI() {
+    if (!ui.plusChips) {
+      return;
+    }
+    const chips: string[] = [];
+    if (state.includeHistory) chips.push(`History:${state.historyRange}`);
+    if (state.includeRestMenu) chips.push("RestMenu");
+    if (state.includeRecentChat) chips.push(`Chat:${state.recentTurns}T`);
+    ui.plusChips.innerHTML = chips
+      .map(
+        (label) => `
+        <span class="rounded-full border border-slate-800 bg-slate-900/50 px-3 py-1">
+          ${escapeHtml(label)}
+        </span>
+      `,
+      )
+      .join("");
+  }
+
+  function updateSendUI() {
+    if (!ui.sendButton) {
+      return;
+    }
+    const disabled = !state.connected || inFlight;
+    ui.sendButton.disabled = disabled;
+  }
+
+  function getContextOptions(): ContextOptionState {
+    return {
+      includeHistory: state.includeHistory,
+      historyRange: state.historyRange,
+      includeRestMenu: state.includeRestMenu,
+      includeRecentChat: state.includeRecentChat,
+      recentTurns: state.recentTurns,
+    };
+  }
+
+  async function handleSend() {
+    if (!ui.chatInput || inFlight) {
+      return;
+    }
+    if (!state.connected) {
       return;
     }
     const message = ui.chatInput.value.trim();
     if (!message) {
       return;
     }
-    ui.chatInput.value = "";
-    ui.chatInput.focus();
+    inFlight = true;
+    updateSendUI();
+    try {
+      const payload = await buildContextPack(getContextOptions());
+      await fetch(`${API_BASE}/v1/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: payload.text, max_output_chars: 600 }),
+      });
+      ui.chatInput.value = "";
+      ui.chatInput.focus();
+    } catch (error) {
+      console.error("chat send failed", error);
+    } finally {
+      inFlight = false;
+      updateSendUI();
+    }
   }
 }
 
@@ -732,4 +914,13 @@ function withSvgClass(svg: string, cls: string) {
 function renderIcon(svg: string, cls: string) {
   const sized = withSvgClass(svg, "h-full w-full");
   return `<span aria-hidden="true" class="inline-flex items-center justify-center ${cls}">${sized}</span>`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

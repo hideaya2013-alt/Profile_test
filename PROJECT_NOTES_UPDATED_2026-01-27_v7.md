@@ -153,8 +153,8 @@ export interface Plan {
 ---
 
 ### 2.5 ChatMessage（TriCoach Chat 履歴）
-- 目的：直近 2〜3 ターン（必要最小）を context pack に含め、会話の流れを維持する
-- 保存：送受信ごとにDBへ追記（append-only、削除はDev導線のみ）
+- 目的：直近 2〜3 ターン（必要最小）を context pack に含め、会話の流れを維持する（将来）
+- 保存：**現段階ではDBへ保存しない**（送受信ログ／payloadは保持しない）。必要になったら追加する
 - 欠損は null、undefined禁止（CODEX準拠）
 
 #### フィールド（最小）
@@ -334,7 +334,9 @@ TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマ�
   -「選択状態はチップ表示（History:7d / RestMenu / Chat:2T）を入力バー直上に表示」
 
 ##### 実装責務（破綻しない分離：固定）
-- 入力されたデータは必ず一度DBへ保存（Source of Truth）
+- Source of Truth はDB（Profile/Doctrine/History/RestMenu）
+- **送信payload(text pack)は生成して送信後に保持しない（DB保存しない）**
+- 入力欄の文言・送受信ログは現段階ではDBへ保存しない（必要になったら追加）
 - Chat画面は「＋」で選んだチェック状態と、Historyの 7d/14d だけを保持
 - `contextPackService.ts` が、チェック状態を受け取り **DBから取得→成形→送信payload** を返す
 - Chat画面は「ユーザー入力」＋「serviceが返したpayload」を送信する（入力欄にpayload全文は出さない）
@@ -444,4 +446,3 @@ TriCoach は **Menu 画面と Chat 画面を分離**して実装する（スマ�
 ### 6.3 接続ルール（固定）
 - フロントは contextPackService が生成した FULL PAYLOAD（result.text）を API に送る
 - debug/meta は原則送らない（必要時のみ /v1/echo で確認に使用）
-

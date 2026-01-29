@@ -207,7 +207,8 @@
 
 ### How to verify
 1) pip install -r requirements.txt
-2) uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+2) python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+   -*vsコード　仮想環境をbase→trimenu_envへ切り替える。
 3) http://localhost:8000/health が200で返る
 4) /docs で /v1/echo と /v1/chat を試す
 
@@ -271,3 +272,41 @@
 
 ### Next
 - newActivity.ts の保存/バリデーション周りの整理
+
+## 2026-01-29 (Session: TriCoach Chat Plus Panel)
+### Done
+- TriCoach Chatに「＋パネル」とチップ表示を追加し、送信オプションを画面状態で保持
+- contextPackServiceで生成したpayloadを /v1/chat へ送信する処理を追加
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- RestMenu上段トグルを削除し、送信素材の選択を＋パネルに集約
+- inFlight/connected制御で二重送信防止と送信可否を制御
+
+### How to verify
+1) 7d/14dボタンでchipsのHistory表示が追従する
+2) ＋パネルのチェックON/OFFがchipsに反映される
+3) Send連打しても /v1/chat が二重送信されない
+
+### Next
+- /v1/chat の応答表示方針の決定
+
+## 2026-01-29 (Session: Project Notes v7 Chat Save Policy)
+### Done
+- TriCoach Chatのpayload/送受信ログは現段階ではDB保存しない旨を追記
+- Source of Truthの範囲と保存方針を明文化
+
+### Touched files
+- PROJECT_NOTES_UPDATED_2026-01-27_v7.md
+
+### Key diffs (high level)
+- ChatMessage保存方針を「未保存（将来対応）」に変更
+- 送信payloadの非保存を3.4.2に追加
+
+### How to verify
+1) PROJECT_NOTES_v7の2.5/3.4.2に保存方針が反映されている
+
+### Next
+- ChatMessageの保存を再開する場合の要件整理
