@@ -150,6 +150,10 @@ export async function buildContextPack(opts: ContextPackOptions): Promise<Contex
   };
 }
 
+export function composeFinalText(contextText: string, userText: string) {
+  return `${contextText}\n\n[USER]\n${userText}`;
+}
+
 async function safeLoadProfile(errors: LoadErrors): Promise<ProfileData | null> {
   try {
     return await loadProfile();

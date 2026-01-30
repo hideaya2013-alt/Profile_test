@@ -2,7 +2,7 @@
 import alertSvg from "../assets/icons/common/alert.svg?raw";
 import checkSvg from "../assets/icons/common/check.svg?raw";
 import editSvg from "../assets/icons/common/edit.svg?raw";
-import { buildContextPack } from "../services/contextPackService";
+import { buildContextPack, composeFinalText } from "../services/contextPackService";
 import { initDevPanel, renderDevPanelHtml, type DevPanelController } from "./triCoachChat.dev";
 import syncSvg from "../assets/icons/common/sync.svg?raw";
 
@@ -915,7 +915,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     updateSendUI();
     try {
       const payload = await buildContextPack(getContextOptions());
-      const finalText = `${payload.text}\n\n[USER]\n${userText}`;
+      const finalText = composeFinalText(payload.text, userText);
       const res = await fetch(`${API_BASE}/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

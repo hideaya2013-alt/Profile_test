@@ -332,3 +332,22 @@
 
 ### Next
 - Recent Chatの永続化方針が固まったらDB保存を再検討
+
+## 2026-01-30 (Session: TriCoach ComposeFinalText Step1)
+### Done
+- finalText生成ロジックをcontextPackServiceへ切り出し（composeFinalText）
+- triCoachChat.ts から文字列結合を除去しサービス呼び出しに置換
+
+### Touched files
+- src/services/contextPackService.ts
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- contextText + userText の結合をサービス関数に集約
+
+### How to verify
+1) 送信時に /v1/chat が従来通り成功する
+2) triCoachChat.ts 内のfinalText結合が消えている
+
+### Next
+- chat 5ターンキャッシュとproposal基礎の実装
