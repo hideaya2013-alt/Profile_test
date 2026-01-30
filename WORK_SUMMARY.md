@@ -310,3 +310,25 @@
 
 ### Next
 - ChatMessageの保存を再開する場合の要件整理
+
+## 2026-01-30 (Session: TriCoach Chat Send + Recent Override)
+### Done
+- TriCoach Chat送信でcontextPackServiceのpayloadとユーザー入力を結合して /v1/chat に送信
+- dev panelのRecent Chatに直近送信のuser/replyを反映するoverrideを追加
+- 送信中の連打防止と簡易ログ表示を追加
+
+### Touched files
+- src/screens/triCoachChat.ts
+- src/services/contextPackService.ts
+
+### Key diffs (high level)
+- recentChatOverride を buildContextPack に追加しダミー表示を差し替え
+- send時にfinalTextを生成し200応答のreplyTextをUIに追記
+
+### How to verify
+1) Sendで /v1/chat が1回だけ呼ばれ、送信中はボタン無効
+2) 送信後にUser/Assistantの簡易ログがUIに追加される
+3) /?dev の [RECENT CHAT] が直近送信内容に更新される
+
+### Next
+- Recent Chatの永続化方針が固まったらDB保存を再検討

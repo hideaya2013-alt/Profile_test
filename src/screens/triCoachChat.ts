@@ -8,12 +8,17 @@ import syncSvg from "../assets/icons/common/sync.svg?raw";
 
 type HistoryRange = "7d" | "14d";
 type SaveFlash = "saved" | "fault" | null;
+type RecentChatOverride = {
+  turn1?: string;
+  turn2?: string;
+};
 type ContextOptionState = {
   includeHistory: boolean;
   includeRestMenu: boolean;
   includeRecentChat: boolean;
   historyRange: HistoryRange;
   recentTurns: 2;
+  recentChatOverride?: RecentChatOverride;
 };
 const API_BASE_RAW = import.meta.env.VITE_API_BASE ?? "";
 const API_BASE = API_BASE_RAW.replace(/\/$/, "");
@@ -55,7 +60,6 @@ export function mountTriCoachChat(root: HTMLElement) {
   let healthTimer: ReturnType<typeof setInterval> | null = null;
   let healthAbort: AbortController | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let inFlight = false;
   const controller = new AbortController();
   const isDev = new URLSearchParams(location.search).has("dev");
   let devPanel: DevPanelController | null = null;
@@ -69,6 +73,9 @@ export function mountTriCoachChat(root: HTMLElement) {
     includeRecentChat: false,
     recentTurns: 2 as 2,
     plusPanelOpen: false,
+    sending: false,
+    lastSentUserText: null as string | null,
+    lastSentAssistantText: null as string | null,
     hasPlanPatch: false,
     devPanelOpen: false,
     lastHealthAt: "-" as string,
@@ -104,6 +111,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     confirmUpdate: null as HTMLButtonElement | null,
     chatInput: null as HTMLTextAreaElement | null,
     sendButton: null as HTMLButtonElement | null,
+    chatLog: null as HTMLElement | null,
     overlay: null as HTMLDivElement | null,
     overlayUpdatedAt: null as HTMLSpanElement | null,
     saveButton: null as HTMLButtonElement | null,
@@ -134,6 +142,7 @@ export function mountTriCoachChat(root: HTMLElement) {
       includeRestMenu: state.includeRestMenu,
       includeRecentChat: state.includeRecentChat,
       recentTurns: state.recentTurns,
+      recentChatOverride: buildRecentChatOverride(),
     }),
   });
   bindOnce(controller.signal);
@@ -368,7 +377,7 @@ export function mountTriCoachChat(root: HTMLElement) {
             </div>
           </section>
 
-          <section class="mt-6 space-y-4">
+          <section data-chat-log class="mt-6 space-y-4">
             <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
               <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">TriCoach</div>
               <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-100">
@@ -539,6 +548,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.confirmUpdate = root.querySelector("[data-confirm-update]");
     ui.chatInput = root.querySelector("[data-chat-input]");
     ui.sendButton = root.querySelector("[data-send]");
+    ui.chatLog = root.querySelector("[data-chat-log]");
     ui.overlay = root.querySelector("[data-overlay]");
     ui.overlayUpdatedAt = root.querySelector("[data-doctrine-updated]");
     ui.saveButton = root.querySelector("[data-doctrine-save]");
@@ -838,11 +848,32 @@ export function mountTriCoachChat(root: HTMLElement) {
       .join("");
   }
 
+  function appendChatMessage(role: "user" | "assistant", text: string) {
+    if (!ui.chatLog) {
+      return;
+    }
+    const isUser = role === "user";
+    const label = isUser ? "You" : "TriCoach";
+    const bubbleClass = isUser ? "bg-sky-500/20" : "bg-slate-900/60";
+    const escaped = escapeHtml(text);
+    ui.chatLog.insertAdjacentHTML(
+      "beforeend",
+      `
+        <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+          <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${label}</div>
+          <div class="mt-3 rounded-2xl border border-slate-800 ${bubbleClass} p-4 text-sm text-slate-100 whitespace-pre-wrap">
+            ${escaped}
+          </div>
+        </div>
+      `,
+    );
+  }
+
   function updateSendUI() {
     if (!ui.sendButton) {
       return;
     }
-    const disabled = !state.connected || inFlight;
+    const disabled = !state.connected || state.sending;
     ui.sendButton.disabled = disabled;
   }
 
@@ -853,35 +884,60 @@ export function mountTriCoachChat(root: HTMLElement) {
       includeRestMenu: state.includeRestMenu,
       includeRecentChat: state.includeRecentChat,
       recentTurns: state.recentTurns,
+      recentChatOverride: buildRecentChatOverride(),
+    };
+  }
+
+  function buildRecentChatOverride(): RecentChatOverride | undefined {
+    const turn1 = state.lastSentUserText?.trim() ?? "";
+    const turn2 = state.lastSentAssistantText?.trim() ?? "";
+    if (!turn1 && !turn2) {
+      return undefined;
+    }
+    return {
+      turn1: turn1 || undefined,
+      turn2: turn2 || undefined,
     };
   }
 
   async function handleSend() {
-    if (!ui.chatInput || inFlight) {
+    if (!ui.chatInput || state.sending) {
       return;
     }
     if (!state.connected) {
       return;
     }
-    const message = ui.chatInput.value.trim();
-    if (!message) {
+    const userText = ui.chatInput.value.trim();
+    if (!userText) {
       return;
     }
-    inFlight = true;
+    state.sending = true;
     updateSendUI();
     try {
       const payload = await buildContextPack(getContextOptions());
-      await fetch(`${API_BASE}/v1/chat`, {
+      const finalText = `${payload.text}\n\n[USER]\n${userText}`;
+      const res = await fetch(`${API_BASE}/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: payload.text, max_output_chars: 600 }),
+        body: JSON.stringify({ text: finalText, max_output_chars: 1200 }),
       });
+      if (!res.ok) {
+        throw new Error(`chat send failed: ${res.status}`);
+      }
+      const data = await res.json().catch(() => null);
+      const replyText =
+        data && typeof data.replyText === "string" ? data.replyText : "(no reply)";
+      appendChatMessage("user", userText);
+      appendChatMessage("assistant", replyText);
+      state.lastSentUserText = userText;
+      state.lastSentAssistantText = replyText;
+      devPanel?.update();
       ui.chatInput.value = "";
       ui.chatInput.focus();
     } catch (error) {
       console.error("chat send failed", error);
     } finally {
-      inFlight = false;
+      state.sending = false;
       updateSendUI();
     }
   }

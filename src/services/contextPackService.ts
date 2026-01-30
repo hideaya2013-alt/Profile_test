@@ -13,6 +13,10 @@ export type ContextPackOptions = {
   includeRestMenu: boolean;
   includeRecentChat: boolean;
   recentTurns: 2 | 3;
+  recentChatOverride?: {
+    turn1?: string;
+    turn2?: string;
+  };
 };
 
 export type ContextPackResult = {
@@ -71,7 +75,7 @@ export async function buildContextPack(opts: ContextPackOptions): Promise<Contex
     : "(no data)";
   const restMenuBody = opts.includeRestMenu ? "(no data)" : "(no data)";
   const recentChatBody = opts.includeRecentChat
-    ? buildRecentChatBody(opts.recentTurns, (value) => {
+    ? buildRecentChatBody(opts.recentTurns, opts.recentChatOverride, (value) => {
         const next = trimMessage(value, MAX_MESSAGE_CHARS);
         if (next.trimmed) trimmed = true;
         return next.text;
@@ -253,11 +257,20 @@ function buildHistoryBody(
   return lines.join("\n");
 }
 
-function buildRecentChatBody(turns: 2 | 3, trimLine: (value: string) => string) {
+function buildRecentChatBody(
+  turns: 2 | 3,
+  override: { turn1?: string; turn2?: string } | undefined,
+  trimLine: (value: string) => string,
+) {
   const placeholder = "(no data)";
-  const lines = Array.from({ length: turns }, (_, index) =>
-    trimLine(`- turn ${index + 1}: ${placeholder}`),
-  );
+  const overrides = [
+    override?.turn1 ? safeTrim(override.turn1) : "",
+    override?.turn2 ? safeTrim(override.turn2) : "",
+  ];
+  const lines = Array.from({ length: turns }, (_, index) => {
+    const content = overrides[index] ? overrides[index] : placeholder;
+    return trimLine(`- turn ${index + 1}: ${content}`);
+  });
   return lines.join("\n");
 }
 
