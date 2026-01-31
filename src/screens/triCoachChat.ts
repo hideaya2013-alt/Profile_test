@@ -3,7 +3,12 @@ import alertSvg from "../assets/icons/common/alert.svg?raw";
 import checkSvg from "../assets/icons/common/check.svg?raw";
 import editSvg from "../assets/icons/common/edit.svg?raw";
 import { buildContextPack, composeFinalText } from "../services/contextPackService";
-import { initDevPanel, renderDevPanelHtml, type DevPanelController } from "./triCoachChat.dev";
+import {
+  applyMockProposal,
+  initDevPanel,
+  renderDevPanelHtml,
+  type DevPanelController,
+} from "./triCoachChat.dev";
 import syncSvg from "../assets/icons/common/sync.svg?raw";
 
 type HistoryRange = "7d" | "14d";
@@ -11,6 +16,24 @@ type SaveFlash = "saved" | "fault" | null;
 type RecentChatOverride = {
   turn1?: string;
   turn2?: string;
+};
+type Sport = "swim" | "bike" | "run";
+type MenuProposalCard = {
+  id: string;
+  date: string;
+  primarySport: Sport;
+  summary: string;
+  detail: string;
+};
+type MenuProposalV1 = {
+  type: "menu";
+  version: 1;
+  cards: MenuProposalCard[];
+};
+type Proposal = MenuProposalV1;
+type ChatResponse = {
+  replyText: string;
+  proposal: Proposal | null;
 };
 type ChatTurn = {
   id: string;
@@ -124,6 +147,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     sendButton: null as HTMLButtonElement | null,
     chatLog: null as HTMLElement | null,
     chatCached: null as HTMLDivElement | null,
+    chatProposal: null as HTMLDivElement | null,
     overlay: null as HTMLDivElement | null,
     overlayUpdatedAt: null as HTMLSpanElement | null,
     saveButton: null as HTMLButtonElement | null,
@@ -416,6 +440,7 @@ export function mountTriCoachChat(root: HTMLElement) {
               </button>
             </div>
             <div data-chat-cached class="space-y-4"></div>
+            <div data-chat-proposal class="space-y-4"></div>
           </section>
 
           <div class="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-950/95 px-5 py-4">
@@ -563,6 +588,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.sendButton = root.querySelector("[data-send]");
     ui.chatLog = root.querySelector("[data-chat-log]");
     ui.chatCached = root.querySelector("[data-chat-cached]");
+    ui.chatProposal = root.querySelector("[data-chat-proposal]");
     ui.overlay = root.querySelector("[data-overlay]");
     ui.overlayUpdatedAt = root.querySelector("[data-doctrine-updated]");
     ui.saveButton = root.querySelector("[data-doctrine-save]");
@@ -872,6 +898,17 @@ export function mountTriCoachChat(root: HTMLElement) {
       .join("");
   }
 
+  function updateProposalUI(proposal: Proposal | null) {
+    if (!ui.chatProposal) {
+      return;
+    }
+    if (!proposal || proposal.cards.length === 0) {
+      ui.chatProposal.innerHTML = "";
+      return;
+    }
+    ui.chatProposal.innerHTML = renderProposalCard(proposal.cards[0]);
+  }
+
   function renderChatTurn(turn: ChatTurn) {
     const userCard = renderChatMessage("You", "bg-sky-500/20", turn.userText);
     const assistantCard = renderChatMessage("TriCoach", "bg-slate-900/60", turn.replyText);
@@ -885,6 +922,21 @@ export function mountTriCoachChat(root: HTMLElement) {
         <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${label}</div>
         <div class="mt-3 rounded-2xl border border-slate-800 ${bubbleClass} p-4 text-sm text-slate-100 whitespace-pre-wrap">
           ${escaped}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderProposalCard(card: MenuProposalCard) {
+    const summary = card.summary?.trim() || "(no summary)";
+    return `
+      <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+        <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          ${renderIcon(checkSvg, "h-4 w-4 text-slate-300")}
+          MENU PROPOSAL
+        </div>
+        <div class="mt-2 rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2 text-sm text-slate-200">
+          ${escapeHtml(summary)}
         </div>
       </div>
     `;
@@ -946,13 +998,14 @@ export function mountTriCoachChat(root: HTMLElement) {
         throw new Error(`chat send failed: ${res.status}`);
       }
       const data = await res.json().catch(() => null);
-      const replyText =
-        data && typeof data.replyText === "string" ? data.replyText : "(no reply)";
+      const response = applyMockProposal(normalizeChatResponse(data));
+      const replyText = response.replyText;
       state.lastSentUserText = userText;
       state.lastSentAssistantText = replyText;
       state.cachedTurns = appendTurn(state.cachedTurns, userText, replyText);
       saveRecentTurns(state.cachedTurns);
       updateCachedTurnsUI();
+      updateProposalUI(response.proposal);
       devPanel?.update();
       ui.chatInput.value = "";
       ui.chatInput.focus();
@@ -1001,6 +1054,37 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function normalizeChatResponse(value: unknown): ChatResponse {
+  const replyText =
+    value &&
+    typeof value === "object" &&
+    typeof (value as { replyText?: unknown }).replyText === "string"
+      ? (value as { replyText: string }).replyText
+      : "(no reply)";
+  const proposalValue =
+    value && typeof value === "object" ? (value as { proposal?: unknown }).proposal : null;
+  const proposal = isMenuProposal(proposalValue) ? proposalValue : null;
+  return { replyText, proposal };
+}
+
+function isMenuProposal(value: unknown): value is Proposal {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const proposal = value as { type?: unknown; version?: unknown; cards?: unknown };
+  if (proposal.type !== "menu" || proposal.version !== 1 || !Array.isArray(proposal.cards)) {
+    return false;
+  }
+  if (proposal.cards.length === 0) {
+    return false;
+  }
+  const first = proposal.cards[0] as Partial<MenuProposalCard> | undefined;
+  if (!first || typeof first.summary !== "string") {
+    return false;
+  }
+  return true;
 }
 
 function loadRecentTurns(): ChatTurn[] {

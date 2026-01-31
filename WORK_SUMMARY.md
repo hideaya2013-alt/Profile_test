@@ -370,3 +370,40 @@
 
 ### Next
 - proposalカード枠の表示追加
+
+## 2026-01-31 (Session: TriCoach Proposal Card + Dev Mock)
+### Done
+- proposalレスポンスを判別してassistant直下にsummaryカードを表示
+- /?dev のDev PanelにMock Menu Proposalトグルを追加し、mock注入で検証可能に
+
+### Touched files
+- src/screens/triCoachChat.ts
+- src/screens/triCoachChat.dev.ts
+
+### Key diffs (high level)
+- proposal.type/version判定で表示制御（replyText判定は使わない）
+- mockフラグをlocalStorageに保持し、dev側のみproposal注入
+
+### How to verify
+1) mock OFFでproposalカードが出ない
+2) mock ONで「MENU PROPOSAL + summary」がassistant返信直下に出る
+3) tricoach_chat_turns_v1にproposal/finalTextが混入しない
+
+### Next
+- proposal詳細/Apply導線の設計
+
+## 2026-01-31 (Session: Dev Toggle Switch Fix)
+### Done
+- dev panelのMock Menu Proposalトグルでノブが移動するようpeer-checkedセレクタを修正
+
+### Touched files
+- src/screens/triCoachChat.dev.ts
+
+### Key diffs (high level)
+- 親要素に peer-checked:[&>div]:translate-x-5 を追加し子ノブ移動を有効化
+
+### How to verify
+1) /?dev のトグルをON/OFFでノブが左右に移動する
+
+### Next
+- proposal詳細/Apply導線の設計

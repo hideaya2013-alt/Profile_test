@@ -28,6 +28,8 @@ export type DevPanelController = {
   dispose: () => void;
 };
 
+const MOCK_PROPOSAL_KEY = "tricoach_mock_menu_proposal_v1";
+
 type DevPanelUI = {
   panel: HTMLDivElement | null;
   toggle: HTMLButtonElement | null;
@@ -38,6 +40,7 @@ type DevPanelUI = {
   healthResult: HTMLSpanElement | null;
   historyRange: HTMLSpanElement | null;
   restMenu: HTMLSpanElement | null;
+  mockProposalToggle: HTMLInputElement | null;
   packChars: HTMLSpanElement | null;
   packPreview: HTMLPreElement | null;
   packJson: HTMLPreElement | null;
@@ -81,6 +84,32 @@ export function renderDevPanelHtml(isDev: boolean) {
               <div>Always: ON</div>
               <div>historyRange: <span data-dev-history-range class="text-slate-200"></span></div>
               <div>restMenuOn: <span data-dev-restmenu class="text-slate-200"></span></div>
+            </div>
+            <div class="mt-3 space-y-2">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Dev Tools</div>
+              <label class="flex items-center justify-between gap-3">
+                <div class="flex flex-col">
+                  <span class="text-xs font-semibold text-slate-200">Mock Menu Proposal</span>
+                  <span class="text-[11px] text-slate-400">inject proposal into /v1/chat</span>
+                </div>
+                <input
+                  type="checkbox"
+                  data-dev-mock-proposal
+                  class="sr-only peer"
+                  role="switch"
+                />
+                <div
+                  class="relative h-6 w-11 rounded-full bg-slate-700/80 ring-1 ring-white/10 transition
+                         peer-checked:bg-sky-500/80
+                         peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-sky-400/70
+                         peer-disabled:opacity-50
+                         peer-checked:[&>div]:translate-x-5"
+                >
+                  <div
+                    class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white/90 shadow transition"
+                  ></div>
+                </div>
+              </label>
             </div>
             <div class="mt-3 space-y-2">
               <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payload preview</div>
@@ -139,6 +168,7 @@ export function initDevPanel(deps: DevPanelDeps): DevPanelController {
     healthResult: deps.root.querySelector("[data-dev-health-result]"),
     historyRange: deps.root.querySelector("[data-dev-history-range]"),
     restMenu: deps.root.querySelector("[data-dev-restmenu]"),
+    mockProposalToggle: deps.root.querySelector("[data-dev-mock-proposal]"),
     packChars: deps.root.querySelector("[data-dev-pack-chars]"),
     packPreview: deps.root.querySelector("[data-dev-pack-preview]"),
     packJson: deps.root.querySelector("[data-dev-pack-json]"),
@@ -185,6 +215,14 @@ export function initDevPanel(deps: DevPanelDeps): DevPanelController {
     { signal: deps.signal },
   );
 
+  ui.mockProposalToggle?.addEventListener(
+    "change",
+    () => {
+      setMockProposalEnabled(ui.mockProposalToggle?.checked ?? false);
+    },
+    { signal: deps.signal },
+  );
+
   function update(forceRebuild = false) {
     if (!deps.isDev || !ui.panel) {
       return;
@@ -209,6 +247,9 @@ export function initDevPanel(deps: DevPanelDeps): DevPanelController {
     }
     if (ui.restMenu) {
       ui.restMenu.textContent = String(state.restMenuOn);
+    }
+    if (ui.mockProposalToggle) {
+      ui.mockProposalToggle.checked = isMockProposalEnabled();
     }
 
     updateDevPanelPayloadUI();
@@ -357,5 +398,60 @@ export function initDevPanel(deps: DevPanelDeps): DevPanelController {
         clearTimeout(copyTimer);
       }
     },
+  };
+}
+
+type MockProposalCard = {
+  id: string;
+  date: string;
+  primarySport: "swim" | "bike" | "run";
+  summary: string;
+  detail: string;
+};
+
+type MockProposalV1 = {
+  type: "menu";
+  version: 1;
+  cards: MockProposalCard[];
+};
+
+export function applyMockProposal<T extends { proposal: unknown }>(response: T): T {
+  if (!isMockProposalEnabled()) {
+    return response;
+  }
+  return { ...response, proposal: buildMockProposal() } as T;
+}
+
+function isMockProposalEnabled() {
+  try {
+    return localStorage.getItem(MOCK_PROPOSAL_KEY) === "true";
+  } catch (error) {
+    console.error("mock proposal: load failed", error);
+    return false;
+  }
+}
+
+function setMockProposalEnabled(enabled: boolean) {
+  try {
+    localStorage.setItem(MOCK_PROPOSAL_KEY, enabled ? "true" : "false");
+  } catch (error) {
+    console.error("mock proposal: save failed", error);
+  }
+}
+
+function buildMockProposal(): MockProposalV1 {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    type: "menu",
+    version: 1,
+    cards: [
+      {
+        id: today,
+        date: today,
+        primarySport: "bike",
+        summary: "Bike 30min 基礎1 / Run 30min 基礎2",
+        detail: "自由記述。ここはPhase Aでは表示しないが型として入れる。",
+      },
+    ],
   };
 }
