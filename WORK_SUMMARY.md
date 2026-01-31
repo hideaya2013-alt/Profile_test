@@ -351,3 +351,22 @@
 
 ### Next
 - chat 5ターンキャッシュとproposal基礎の実装
+
+## 2026-01-31 (Session: TriCoach Chat 5-Turn Cache)
+### Done
+- triCoachChatで直近5ターンのチャット履歴をlocalStorageへ保存/復元
+- 送信成功時にuser/replyが揃ったタイミングのみ保存し、finalTextは保存しない
+
+### Touched files
+- src/screens/triCoachChat.ts
+
+### Key diffs (high level)
+- tricoach_chat_turns_v1の保存/復元とUI再描画を追加
+- 800文字上限・5ターン上限で末尾トリム
+
+### How to verify
+1) 送信後にリロードしても直近5ターンが表示される
+2) localStorageにuserText/replyTextのみ保存されfinalTextが含まれない
+
+### Next
+- proposalカード枠の表示追加

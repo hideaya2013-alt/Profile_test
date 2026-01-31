@@ -12,6 +12,12 @@ type RecentChatOverride = {
   turn1?: string;
   turn2?: string;
 };
+type ChatTurn = {
+  id: string;
+  userText: string;
+  replyText: string;
+  createdAt: string;
+};
 type ContextOptionState = {
   includeHistory: boolean;
   includeRestMenu: boolean;
@@ -55,6 +61,10 @@ const SAVE_FAULT_CLASSES =
   "cursor-not-allowed";
 const SAVE_DISABLED_CLASSES =
   "text-slate-400 border-slate-600/60 cursor-not-allowed opacity-70";
+const CHAT_TURNS_KEY = "tricoach_chat_turns_v1";
+const CHAT_TURNS_VERSION = 1;
+const CHAT_TURNS_LIMIT = 5;
+const CHAT_TEXT_LIMIT = 800;
 
 export function mountTriCoachChat(root: HTMLElement) {
   let healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -76,6 +86,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     sending: false,
     lastSentUserText: null as string | null,
     lastSentAssistantText: null as string | null,
+    cachedTurns: loadRecentTurns(),
     hasPlanPatch: false,
     devPanelOpen: false,
     lastHealthAt: "-" as string,
@@ -112,6 +123,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     chatInput: null as HTMLTextAreaElement | null,
     sendButton: null as HTMLButtonElement | null,
     chatLog: null as HTMLElement | null,
+    chatCached: null as HTMLDivElement | null,
     overlay: null as HTMLDivElement | null,
     overlayUpdatedAt: null as HTMLSpanElement | null,
     saveButton: null as HTMLButtonElement | null,
@@ -403,6 +415,7 @@ export function mountTriCoachChat(root: HTMLElement) {
                 Confirm Update
               </button>
             </div>
+            <div data-chat-cached class="space-y-4"></div>
           </section>
 
           <div class="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-950/95 px-5 py-4">
@@ -549,6 +562,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     ui.chatInput = root.querySelector("[data-chat-input]");
     ui.sendButton = root.querySelector("[data-send]");
     ui.chatLog = root.querySelector("[data-chat-log]");
+    ui.chatCached = root.querySelector("[data-chat-cached]");
     ui.overlay = root.querySelector("[data-overlay]");
     ui.overlayUpdatedAt = root.querySelector("[data-doctrine-updated]");
     ui.saveButton = root.querySelector("[data-doctrine-save]");
@@ -702,6 +716,7 @@ export function mountTriCoachChat(root: HTMLElement) {
     updatePlusPanelUI();
     updateChipsUI();
     updateSendUI();
+    updateCachedTurnsUI();
     devPanel?.update();
   }
 
@@ -848,25 +863,31 @@ export function mountTriCoachChat(root: HTMLElement) {
       .join("");
   }
 
-  function appendChatMessage(role: "user" | "assistant", text: string) {
-    if (!ui.chatLog) {
+  function updateCachedTurnsUI() {
+    if (!ui.chatCached) {
       return;
     }
-    const isUser = role === "user";
-    const label = isUser ? "You" : "TriCoach";
-    const bubbleClass = isUser ? "bg-sky-500/20" : "bg-slate-900/60";
+    ui.chatCached.innerHTML = state.cachedTurns
+      .map((turn) => renderChatTurn(turn))
+      .join("");
+  }
+
+  function renderChatTurn(turn: ChatTurn) {
+    const userCard = renderChatMessage("You", "bg-sky-500/20", turn.userText);
+    const assistantCard = renderChatMessage("TriCoach", "bg-slate-900/60", turn.replyText);
+    return `${userCard}${assistantCard}`;
+  }
+
+  function renderChatMessage(label: string, bubbleClass: string, text: string) {
     const escaped = escapeHtml(text);
-    ui.chatLog.insertAdjacentHTML(
-      "beforeend",
-      `
-        <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-          <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${label}</div>
-          <div class="mt-3 rounded-2xl border border-slate-800 ${bubbleClass} p-4 text-sm text-slate-100 whitespace-pre-wrap">
-            ${escaped}
-          </div>
+    return `
+      <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${label}</div>
+        <div class="mt-3 rounded-2xl border border-slate-800 ${bubbleClass} p-4 text-sm text-slate-100 whitespace-pre-wrap">
+          ${escaped}
         </div>
-      `,
-    );
+      </div>
+    `;
   }
 
   function updateSendUI() {
@@ -927,10 +948,11 @@ export function mountTriCoachChat(root: HTMLElement) {
       const data = await res.json().catch(() => null);
       const replyText =
         data && typeof data.replyText === "string" ? data.replyText : "(no reply)";
-      appendChatMessage("user", userText);
-      appendChatMessage("assistant", replyText);
       state.lastSentUserText = userText;
       state.lastSentAssistantText = replyText;
+      state.cachedTurns = appendTurn(state.cachedTurns, userText, replyText);
+      saveRecentTurns(state.cachedTurns);
+      updateCachedTurnsUI();
       devPanel?.update();
       ui.chatInput.value = "";
       ui.chatInput.focus();
@@ -979,4 +1001,68 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function loadRecentTurns(): ChatTurn[] {
+  try {
+    const raw = localStorage.getItem(CHAT_TURNS_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as { v?: number; turns?: ChatTurn[] };
+    if (parsed?.v !== CHAT_TURNS_VERSION || !Array.isArray(parsed.turns)) {
+      console.error("chat turns: invalid format");
+      return [];
+    }
+    const turns = parsed.turns.filter((turn) => {
+      return (
+        turn &&
+        typeof turn.id === "string" &&
+        typeof turn.userText === "string" &&
+        typeof turn.replyText === "string" &&
+        typeof turn.createdAt === "string"
+      );
+    });
+    return turns.slice(-CHAT_TURNS_LIMIT);
+  } catch (error) {
+    console.error("chat turns: load failed", error);
+    return [];
+  }
+}
+
+function saveRecentTurns(turns: ChatTurn[]) {
+  try {
+    const payload = {
+      v: CHAT_TURNS_VERSION,
+      turns,
+    };
+    localStorage.setItem(CHAT_TURNS_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.error("chat turns: save failed", error);
+  }
+}
+
+function appendTurn(turns: ChatTurn[], userText: string, replyText: string) {
+  const now = new Date().toISOString();
+  const next: ChatTurn = {
+    id: generateId(),
+    userText: trimText(userText, CHAT_TEXT_LIMIT),
+    replyText: trimText(replyText, CHAT_TEXT_LIMIT),
+    createdAt: now,
+  };
+  return turns.concat(next).slice(-CHAT_TURNS_LIMIT);
+}
+
+function trimText(value: string, limit: number) {
+  if (value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, limit)}...(trimmed)`;
+}
+
+function generateId() {
+  if (crypto?.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `chat_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
